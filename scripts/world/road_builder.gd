@@ -14,8 +14,9 @@ static func build(parent: Node3D, road: RoadPath) -> void:
 	var faces := PackedVector3Array()
 	var hw := road.half_width
 	var n := road.sample_count()
+	var segments := n if road.closed else n - 1
 
-	for s in n:
+	for s in segments:
 		var e := (s + 1) % n
 		var p0 := road.points[s]
 		var p1 := road.points[e]
@@ -39,21 +40,26 @@ static func build(parent: Node3D, road: RoadPath) -> void:
 	var material := ShaderMaterial.new()
 	material.shader = ROAD_SHADER
 	material.set_shader_parameter(&"road_width", hw * 2.0)
+	material.set_shader_parameter(&"lanes_per_side", road.lanes_per_side)
+	material.set_shader_parameter(&"lane_width", road.lane_width)
+	material.set_shader_parameter(&"median_width", road.median_width)
+	material.set_shader_parameter(&"dash_length", road.dash_length)
+	material.set_shader_parameter(&"dash_gap", road.dash_gap)
 
 	var road_mesh := MeshInstance3D.new()
-	road_mesh.name = "Road"
+	road_mesh.name = "Road_%s" % road.name
 	road_mesh.mesh = top.commit(material)
 	road_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	parent.add_child(road_mesh)
 
 	var edge_mesh := MeshInstance3D.new()
-	edge_mesh.name = "RoadEdges"
+	edge_mesh.name = "RoadEdges_%s" % road.name
 	edge_mesh.mesh = edges.commit(Palette.vertex_material(0.9))
 	edge_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	parent.add_child(edge_mesh)
 
 	var body := StaticBody3D.new()
-	body.name = "RoadBody"
+	body.name = "RoadBody_%s" % road.name
 	body.set_meta(&"surface", &"road")
 	var shape := ConcavePolygonShape3D.new()
 	shape.backface_collision = true

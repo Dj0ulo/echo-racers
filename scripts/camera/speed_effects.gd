@@ -2,7 +2,8 @@ class_name SpeedEffects
 extends Node3D
 ## High-speed feedback attached to the ChaseCamera: wind streaks flying past the lens
 ## (GPU particles in camera space) and a full-screen overlay (edge radial blur, speed lines,
-## vignette). Both are driven by the camera's `speed_fx` and fully hidden when slow.
+## vignette). Both are driven by the camera's `speed_fx` (plus a boost bump from `boost_fx`) and
+## fully hidden when slow.
 
 const STREAK_SHADER := preload("res://shaders/speed_streak.gdshader")
 const OVERLAY_SHADER := preload("res://shaders/speed_overlay.gdshader")
@@ -13,6 +14,8 @@ const OVERLAY_SHADER := preload("res://shaders/speed_overlay.gdshader")
 @export var streak_max_length := 7.0
 @export var streak_brightness := 0.55
 @export var overlay_enabled := true
+@export var boost_intensity := 0.4          ## Added to the effect intensity while boosting.
+@export var boost_min_speed_kmh := 40.0     ## Boost effects fade in from here (no streaks at a standstill).
 
 var _camera: ChaseCamera
 var _streaks: GPUParticles3D
@@ -36,8 +39,11 @@ func _process(delta: float) -> void:
 		return
 	var target := _camera.get_target()
 	# Extra smoothing so effects never pop on/off with small speed changes.
-	_intensity = lerpf(_intensity, _camera.speed_fx, 1.0 - exp(-4.0 * delta))
-	_apply(_intensity, target.linear_velocity.length())
+	var speed_ms := target.linear_velocity.length()
+	var boost := _camera.boost_fx * boost_intensity * clampf(speed_ms * 3.6 / boost_min_speed_kmh - 0.5, 0.0, 1.0)
+	var goal := clampf(_camera.speed_fx + boost, 0.0, 1.0)
+	_intensity = lerpf(_intensity, goal, 1.0 - exp(-4.0 * delta))
+	_apply(_intensity, speed_ms)
 
 
 func _apply(k: float, speed_ms: float) -> void:

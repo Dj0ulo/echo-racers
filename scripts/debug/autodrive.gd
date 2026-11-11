@@ -1,5 +1,7 @@
 extends Node
-## Debug helper, enabled with `godot -- --autodrive [--shots=/abs/dir]`.
+## Debug helper, enabled with `godot -- --autodrive [--shots=/abs/dir] [--road=highway] [--traffic]`.
+## `--road=<name>` drives another road of the network (in its inner right-hand lane on multi-lane roads);
+## traffic stays off unless `--traffic` is given.
 ## A simple pure-pursuit autopilot drives along the road (with handbrake drift scenarios and a
 ## brake/reverse test), prints handling telemetry, optionally saves screenshots, then quits.
 ##
@@ -43,33 +45,50 @@ var _ev_log_next := 0.0
 var _ev_dir := 1.0  ## Flick direction for "follow_bend" events (sign of the autopilot steer at the start).
 var _summaries: PackedStringArray = []
 var _resets_done := {}
+var _road: RoadPath
+var _lane_offset := 0.0
+var _max_target_kmh := 170.0
 
 
 func _ready() -> void:
 	_car = get_parent().get_node("Car")
 	_world = get_parent().get_node("World")
 	_car.input.player_controlled = false
+	_road = _world.road
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--shots="):
 			_shots_dir = arg.trim_prefix("--shots=")
+		elif arg.begins_with("--road="):
+			var road_name := arg.trim_prefix("--road=")
+			for r in _world.roads:
+				if String(r.name) == road_name:
+					_road = r
+	if _road != _world.road:
+		if _road.median_width > 0.0:
+			_lane_offset = _road.lane_offsets()[0]
+			_max_target_kmh = 260.0
+		_car.reset_to(_road.transform_at(0, 0.9, _lane_offset))
+		get_parent().get_node("ChaseCamera").snap()
+		print("Autodrive on road '%s' (%.0f m), lane offset %.2f m" % [_road.name, _road.length, _lane_offset])
 
 
 func _physics_process(delta: float) -> void:
 	_time += delta
-	var road := _world.road
+	var road := _road
 	var pos := _car.global_position
 	var idx := road.nearest_index(pos)
 	var speed := _car.speed
 	var lookahead := clampi(int(6 + absf(speed) * 0.5), 6, 40)
-	var target := road.points[(idx + lookahead) % road.sample_count()]
+	var ti := road.wrap_index(idx + lookahead)
+	var target := road.points[ti] + road.right_at(ti) * _lane_offset
 	var local := _car.global_transform.affine_inverse() * target
 	var steer := clampf(atan2(local.x, -local.z) * 2.5, -1.0, 1.0)
 
 	# Target speed from upcoming curvature.
 	var t0 := road.tangents[idx]
-	var t1 := road.tangents[(idx + 30) % road.sample_count()]
+	var t1 := road.tangents[road.wrap_index(idx + 30)]
 	var bend := t0.angle_to(t1)
-	var target_speed := lerpf(170.0, 70.0, clampf(bend / 1.2, 0.0, 1.0)) / 3.6
+	var target_speed := lerpf(_max_target_kmh, 70.0, clampf(bend / 1.2, 0.0, 1.0)) / 3.6
 
 	var throttle := 1.0 if speed < target_speed else 0.0
 	var brake := 0.0 if speed < target_speed + 3.0 else 1.0
@@ -111,7 +130,8 @@ func _physics_process(delta: float) -> void:
 	_car.input.steer = steer
 	_car.input.handbrake = handbrake
 
-	var off_road := Vector2(road.points[idx].x - pos.x, road.points[idx].z - pos.z).length()
+	var lane_point := road.points[idx] + road.right_at(idx) * _lane_offset
+	var off_road := Vector2(lane_point.x - pos.x, lane_point.z - pos.z).length()
 	_max_off_road = maxf(_max_off_road, off_road)
 	_max_speed = maxf(_max_speed, _car.get_speed_kmh())
 	_max_yaw_rate = maxf(_max_yaw_rate, absf(_car.angular_velocity.y))

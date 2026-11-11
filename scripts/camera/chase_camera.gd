@@ -3,7 +3,8 @@ extends Camera3D
 ## Third-person chase camera: trails the car's heading with smoothed yaw and height,
 ## pulls back, lowers and widens FOV with speed, lags on acceleration, adds a subtle
 ## noise-based high-speed shake, looks ahead, and avoids clipping into terrain.
-## Exposes `speed_fx` (0..1, ramps in above `fx_start_speed_kmh`) for SpeedEffects.
+## Exposes `speed_fx` (0..1, ramps in above `fx_start_speed_kmh`) and `boost_fx` (0..1, smoothed
+## nitro state) for SpeedEffects. Boosting widens the FOV and pulls the camera back a little.
 
 @export var target_path: NodePath
 @export var distance := 6.2
@@ -32,11 +33,16 @@ extends Camera3D
 @export var shake_strength := 0.35          ## Degrees of rotational shake at full speed.
 @export var shake_offset := 0.035           ## Metres of positional shake at full speed.
 @export var shake_frequency := 9.0
+@export var boost_fov := 5.0                ## Extra degrees of FOV while boosting.
+@export var boost_pull_back := 0.5          ## Extra metres of distance while boosting.
+@export var boost_shake := 0.5              ## Extra shake amount (0..1 scale) while boosting.
 
 ## 0..1 high-speed intensity (smoothstep between fx_start and fx_full), read by SpeedEffects.
 var speed_fx := 0.0
 ## Smoothed forward acceleration (m/s^2).
 var forward_accel := 0.0
+## 0..1 smoothed boost intensity, read by SpeedEffects.
+var boost_fx := 0.0
 
 var _target: RigidBody3D
 var _focus := Vector3.ZERO
@@ -82,6 +88,7 @@ func snap() -> void:
 	_kick = 0.0
 	_lag = 0.0
 	speed_fx = 0.0
+	boost_fx = 0.0
 	_smooth_fov = base_fov
 	fov = base_fov
 	_place(0.0)
@@ -108,6 +115,9 @@ func _process(delta: float) -> void:
 	var speed_kmh := vel.length() * 3.6
 	var speed_t := clampf(speed_kmh / full_effect_speed_kmh, 0.0, 1.0)
 	speed_fx = smoothstep(fx_start_speed_kmh, fx_full_speed_kmh, speed_kmh)
+	var car := _target as CarController
+	var boosting := car != null and car.is_boosting
+	boost_fx = lerpf(boost_fx, 1.0 if boosting else 0.0, 1.0 - exp(-(5.0 if boosting else 2.0) * delta))
 
 	# Follow horizontally exactly, smooth vertically so bumps don't shake the view.
 	var ky := 1.0 - exp(-height_smoothing * delta)
@@ -132,7 +142,7 @@ func _process(delta: float) -> void:
 	var kk := 1.0 - exp(-(10.0 if kick_target > _kick else 2.5) * delta)
 	_kick = lerpf(_kick, kick_target, kk)
 	_smooth_fov = lerpf(_smooth_fov, target_fov, 1.0 - exp(-fov_smoothing * delta))
-	fov = _smooth_fov + _kick
+	fov = _smooth_fov + _kick + boost_fov * boost_fx
 
 	# Camera lags behind under acceleration and creeps in under braking.
 	var lag_target := clampf(forward_accel * accel_lag, -max_accel_lag * 0.6, max_accel_lag)
@@ -144,7 +154,7 @@ func _process(delta: float) -> void:
 func _place(speed_t: float) -> void:
 	var drop := height_drop_at_speed * speed_fx
 	var pivot := _focus + Vector3.UP * (look_height - drop * 0.3)
-	var back := distance + extra_distance_at_speed * speed_t + _lag
+	var back := distance + extra_distance_at_speed * speed_t + _lag + boost_pull_back * boost_fx
 	var desired := _focus - _yaw_dir * back + Vector3.UP * (height - drop)
 	_ray.from = pivot
 	_ray.to = desired
@@ -160,7 +170,7 @@ func _place(speed_t: float) -> void:
 
 ## Smooth, low-amplitude noise shake that only appears at high speed.
 func _apply_shake() -> void:
-	var amount := speed_fx * speed_fx
+	var amount := minf(speed_fx * speed_fx + boost_shake * boost_fx * speed_fx, 1.0)
 	if amount <= 0.001:
 		return
 	var tt := _time * shake_frequency

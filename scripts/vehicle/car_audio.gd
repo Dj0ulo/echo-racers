@@ -3,12 +3,15 @@ extends Node
 ##
 ## - Engine: a real-time voice (AudioStreamGenerator filled in _process) that scans single-cycle
 ##   firing-pulse wavetables at the simulated RPM, cross-fades soft/hard tables by throttle load,
-##   adds combustion grit, soft-clips and runs through a resonant low-pass. A simulated 6-speed
+##   adds combustion grit, soft-clips and runs through a resonant low-pass plus a low-shelf boost
+##   (sub-octave body from the tables is lifted, highs are left alone). A simulated 6-speed
 ##   gearbox (+ reverse) drives the RPM, with throttle cuts on upshift, rev-matching blips on
 ##   downshift, a rev limiter and a few overrun pops on lift-off.
 ## - Loops (pre-synthesised AudioStreamWAVs, volume/pitch driven per frame): tyre squeal (lateral
 ##   slip), tyre skid (handbrake lock, hard braking, launch chirp), wind, road rumble, off-road crunch.
 ## - One-shots: suspension thumps and landings, body impacts, gear-change clicks, handbrake ratchet.
+## - Boost: a nitro loop (turbo whine + hiss + thrust roar) following a spool envelope, a whoosh
+##   when it kicks in and a blow-off "pssh" when it ends.
 ## All players go to a dedicated bus with a hard limiter so nothing clips.
 
 const Synth := preload("res://scripts/vehicle/car_sound_synth.gd")
@@ -22,12 +25,14 @@ const IDLE_RPM := 850.0
 const REDLINE_RPM := 7200.0
 const UPSHIFT_RPM := 6500.0
 const DOWNSHIFT_RPM := 2300.0
-const GEAR_TOP_KMH: Array[float] = [40.0, 68.0, 97.0, 128.0, 162.0, 210.0]
+const GEAR_TOP_KMH: Array[float] = [40.0, 68.0, 97.0, 128.0, 162.0, 245.0]  ## Tall 6th for boosted top speed.
 const REVERSE_TOP_KMH := 40.0
 const SHIFT_TIME := 0.16
 
 @export var volume_db := -4.0
 @export_range(0.0, 2.0) var engine_volume := 1.0
+@export_range(0.0, 2.0) var engine_bass := 0.8   ## Low-shelf boost (below ~170 Hz) on the engine voice.
+@export_range(0.0, 2.0) var boost_volume := 1.0
 @export_range(0.0, 2.0) var tyre_volume := 1.0
 @export_range(0.0, 2.0) var ambience_volume := 1.0
 @export_range(0.0, 2.0) var effects_volume := 1.0
@@ -57,6 +62,7 @@ var _y1 := 0.0
 var _y2 := 0.0
 var _dc_x := 0.0
 var _dc_y := 0.0
+var _bass_lp := 0.0
 var _pop_env := 0.0
 var _pop_pending := 0.0
 
@@ -76,6 +82,7 @@ var _skid: AudioStreamPlayer
 var _wind: AudioStreamPlayer
 var _rumble: AudioStreamPlayer
 var _gravel: AudioStreamPlayer
+var _boost: AudioStreamPlayer
 var _gains := {}
 
 # One-shots
@@ -84,6 +91,8 @@ var _impact: AudioStreamPlayer
 var _click: AudioStreamPlayer
 var _ratchet: AudioStreamPlayer
 var _release: AudioStreamPlayer
+var _boost_start: AudioStreamPlayer
+var _blow_off: AudioStreamPlayer
 
 # Event detection (physics rate)
 var _last_pos := Vector3.ZERO
@@ -96,6 +105,8 @@ var _suppress_events := 0.5
 var _air_time := 0.0
 var _fall_speed := 0.0
 var _handbrake_was := false
+var _boost_was := false
+var _boost_spool := 0.0         ## 0..1, rises while boosting, decays after.
 
 
 func _ready() -> void:
@@ -118,12 +129,15 @@ func _ready() -> void:
 	_wind = _make_loop(&"Wind", Synth.wind_loop())
 	_rumble = _make_loop(&"RoadRumble", Synth.rumble_loop())
 	_gravel = _make_loop(&"Gravel", Synth.gravel_loop())
+	_boost = _make_loop(&"Boost", Synth.boost_loop())
 
 	_thump = _make_player(&"Thump", Synth.thump(), 4)
 	_impact = _make_player(&"Impact", Synth.impact(), 3)
 	_click = _make_player(&"ShiftClick", Synth.shift_click(), 2)
 	_ratchet = _make_player(&"Ratchet", Synth.ratchet(), 1)
 	_release = _make_player(&"HandbrakeRelease", Synth.release_click(), 1)
+	_boost_start = _make_player(&"BoostWhoosh", Synth.boost_whoosh(), 2)
+	_blow_off = _make_player(&"BlowOff", Synth.blow_off(), 2)
 
 
 func _ensure_bus() -> StringName:
@@ -297,7 +311,7 @@ func _fill_engine() -> void:
 	var rpm_n := clampf((rpm - IDLE_RPM) / (REDLINE_RPM - IDLE_RPM), 0.0, 1.0)
 	var inc := rpm / 120.0 / ENGINE_RATE  # One table cycle = two crank turns.
 	var ld := engine_load
-	var gain := engine_volume * 0.34 * (0.5 + 0.5 * ld) * (0.72 + 0.4 * rpm_n)
+	var gain := engine_volume * 0.3 * (0.5 + 0.5 * ld) * (0.72 + 0.4 * rpm_n)
 	var grit := 0.06 + 0.3 * ld * (0.4 + 0.6 * rpm_n)
 	var drive := 1.3 + 1.8 * ld
 
@@ -337,6 +351,9 @@ func _fill_engine() -> void:
 	var dc_x := _dc_x
 	var dc_y := _dc_y
 	var pop := _pop_env
+	var bass_lp := _bass_lp
+	var bass := engine_bass
+	var a_bass := 1.0 - exp(-TAU * 170.0 / ENGINE_RATE)
 
 	for i in want:
 		cur_inc += d_inc
@@ -366,7 +383,9 @@ func _fill_engine() -> void:
 		var hp := y - dc_x + 0.995 * dc_y
 		dc_x = y
 		dc_y = hp
-		var out := hp * cur_gain
+		# Low shelf: add back a low-passed copy.
+		bass_lp += (hp - bass_lp) * a_bass
+		var out := (hp + bass_lp * bass) * cur_gain
 		_buf[i] = Vector2(out, out)
 
 	_phase = ph
@@ -377,6 +396,7 @@ func _fill_engine() -> void:
 	_y2 = y2
 	_dc_x = dc_x
 	_dc_y = dc_y
+	_bass_lp = bass_lp
 	_pop_env = pop if pop > 0.001 else 0.0
 	_prev_inc = inc
 	_prev_load = ld
@@ -424,9 +444,21 @@ func _update_loops(delta: float) -> void:
 	_drive_loop(_gravel, grass_frac * off_road * 0.32 * ambience_volume, 0.8 + clampf(vel_len / 40.0, 0.0, 0.5), delta, 6.0, 6.0)
 
 	var speed_n := clampf(vel_len / 55.0, 0.0, 1.0)
-	_drive_loop(_wind, speed_n * speed_n * 0.24 * ambience_volume, 0.7 + 0.65 * speed_n, delta, 3.0, 3.0)
+	_drive_loop(_wind, speed_n * speed_n * 0.155 * ambience_volume, 0.7 + 0.65 * speed_n, delta, 3.0, 3.0)
 	var rumble := road_frac * clampf(vel_len / 30.0, 0.0, 1.0)
 	_drive_loop(_rumble, rumble * 0.3 * ambience_volume, 0.65 + clampf(vel_len / 50.0, 0.0, 0.8), delta, 5.0, 5.0)
+
+	# Nitro: spool up fast, wind down a little slower.
+	var boosting := _car.is_boosting
+	_boost_spool = move_toward(_boost_spool, 1.0 if boosting else 0.0, (2.5 if boosting else 1.6) * delta)
+	var spool_gain := _boost_spool * _boost_spool * (0.55 + 0.45 * clampf(vel_len / 50.0, 0.0, 1.0))
+	_drive_loop(_boost, spool_gain * 0.34 * boost_volume, 0.7 + 0.45 * _boost_spool + 0.15 * speed_n, delta, 8.0, 4.0)
+	if boosting != _boost_was:
+		_boost_was = boosting
+		if boosting:
+			_play(_boost_start, boost_volume * 0.42, randf_range(0.95, 1.05))
+		elif _boost_spool > 0.3:
+			_play(_blow_off, boost_volume * 0.3 * _boost_spool, randf_range(0.95, 1.1))
 
 	# Handbrake ratchet / release.
 	if inp.handbrake != _handbrake_was:

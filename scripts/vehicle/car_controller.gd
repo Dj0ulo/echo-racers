@@ -9,7 +9,12 @@ extends RigidBody3D
 ## target driven by the slip angle (big angle = drift grip, small angle = full grip), counter-steer
 ## (catches the slide faster) and throttle (sustains it). A yaw assist adds steering authority
 ## (stronger when counter-steering), damps yaw and slip-angle changes, and a speed-dependent angle
-## limiter + yaw-rate cap prevent spin-outs.
+## limiter + yaw-rate cap prevent spin-outs. Once the handbrake is released, extra yaw damping and
+## a faster grip recovery (quicker still when counter-steering) catch the slide promptly.
+##
+## Boost (nitro): while `input.boost` is held and the gauge is not empty, a strong extra forward
+## thrust is applied and the top speed is raised. The gauge drains in `boost_duration` seconds, then
+## after `boost_cooldown` seconds without boosting refills in `boost_refill_time` seconds.
 
 signal flipped
 
@@ -67,22 +72,25 @@ class Wheel:
 @export var steer_return_speed := 8.0
 
 @export_group("Grip")
-@export var tire_stiffness := 9000.0     ## Lateral force per m/s of slip, per wheel.
-@export var front_grip := 1.55           ## Friction coefficient.
-@export var rear_grip := 1.5
+@export var tire_stiffness := 10500.0    ## Lateral force per m/s of slip, per wheel.
+@export var front_grip := 1.7            ## Friction coefficient.
+@export var rear_grip := 1.66
 @export var handbrake_grip := 0.5        ## Rear grip multiplier while the handbrake is held.
 @export var handbrake_grip_rate := 3.0   ## Rear grip multiplier lost per second when pulling the handbrake (ramp, not snap).
 @export var handbrake_brake := 0.1       ## Fraction of brake force applied per rear wheel by the handbrake.
 @export var drift_grip := 0.66           ## Rear grip multiplier while a drift is sustained at a big angle.
-@export var drift_recovery_speed := 2.2  ## Grip multiplier regained per second.
+@export var drift_recovery_speed := 3.4  ## Grip multiplier regained per second once the handbrake is released.
+@export var drift_countersteer_recovery_speed := 2.5  ## Extra grip regained per second at full counter-steer.
 @export var drift_hold_angle := 24.0     ## Degrees of slip at/above which grip stays at drift_grip; below it grip recovers progressively.
-@export var drift_exit_angle := 6.0      ## Degrees of body slip under which a drift ends.
-@export_range(0.0, 1.0) var drift_throttle_hold := 0.6  ## How much throttle keeps the rear loose (sustains the drift).
-@export_range(0.0, 1.0) var drift_countersteer_recovery := 0.45  ## Extra grip recovery from counter-steering off throttle.
+@export var drift_exit_angle := 7.0      ## Degrees of body slip under which a drift ends.
+@export_range(0.0, 1.0) var drift_throttle_hold := 0.45  ## How much throttle keeps the rear loose (sustains the drift).
+@export_range(0.0, 1.0) var drift_countersteer_recovery := 0.75  ## Extra grip recovery from counter-steering off throttle.
+@export var drift_release_recovery := 0.55  ## Grip target recovery per second since the handbrake was released (throttle resists it).
 @export_range(0.0, 1.0) var drift_min_lateral := 0.55  ## Rear lateral grip kept while drifting, whatever the throttle.
 @export var drift_yaw_assist := 1.4      ## Extra yaw acceleration from steering while drifting (rad/s^2).
 @export var drift_countersteer_gain := 2.4  ## Multiplies drift_yaw_assist when steering into the slide.
 @export var drift_yaw_damping := 1.0     ## Resists yaw rate while drifting (1/s).
+@export var release_yaw_damping := 1.6   ## Extra yaw-rate damping (1/s) once the handbrake is released: settles the car quickly.
 @export var drift_slip_damping := 4.0    ## Resists changes of the slip angle while drifting (1/s): steadies the slide.
 @export var max_drift_angle := 40.0      ## Degrees at low speed; beyond this the car is pushed back toward the travel direction.
 @export var high_speed_max_drift_angle := 26.0  ## Max drift angle at steer_falloff_speed_kmh and above.
@@ -91,6 +99,14 @@ class Wheel:
 @export var grass_grip := 0.78
 @export var grass_drag := 1.3            ## Extra rolling resistance on grass (m/s^2).
 @export var tire_force_height := 0.3     ## Raises tyre forces toward the CoM to limit body roll.
+
+@export_group("Boost")
+@export var boost_force := 6500.0        ## Extra forward thrust while boosting (N), tapered toward boost_max_speed_kmh.
+@export var boost_max_speed_kmh := 240.0 ## Top speed while boosting (replaces max_speed_kmh).
+@export var boost_duration := 4.5        ## Seconds a full gauge lasts.
+@export var boost_cooldown := 2.0        ## Seconds after boosting before the gauge starts refilling.
+@export var boost_refill_time := 18.0    ## Seconds to refill from empty to full.
+@export_range(0.0, 1.0) var boost_min_to_start := 0.08  ## Gauge needed to (re)start a boost after it ran dry.
 
 @export_group("Stability")
 @export var gravity_multiplier := 1.5
@@ -104,7 +120,14 @@ var is_drifting := false
 var is_braking := false
 var grounded_wheels := 0
 
+var is_boosting := false
+var boost_amount := 1.0      ## Gauge, 0..1. Read-only for other nodes.
+var boost_cooldown_left := 0.0  ## Seconds before the gauge refills (0 = refilling or full).
+
 var _steer_input := 0.0
+var _boost_locked := false   ## Set when the gauge runs dry while held; cleared on release.
+var _release_time := 0.0     ## Seconds since the handbrake was released during the current drift.
+var _boost_blend := 0.0      ## Smoothed 0..1, raises the drive-force top speed while boosting.
 var rear_grip_factor := 1.0  ## Current rear grip multiplier (1 = full grip). Read-only for other nodes.
 var slip_angle := 0.0        ## Signed body slip angle (degrees, + = sliding toward the right side).
 var _slip_rate := 0.0        ## deg/s, smoothed.
@@ -131,6 +154,8 @@ func reset_to(xform: Transform3D) -> void:
 	slip_angle = 0.0
 	_slip_rate = 0.0
 	is_drifting = false
+	is_boosting = false
+	_boost_blend = 0.0
 	reset_physics_interpolation()
 
 
@@ -148,6 +173,7 @@ func _physics_process(delta: float) -> void:
 	var abs_speed := absf(speed)
 
 	_update_steering(delta, abs_speed)
+	_update_boost(delta)
 
 	# Throttle/brake: pressing "brake" slows down, then reverses once nearly stopped.
 	var drive := 0.0
@@ -164,7 +190,8 @@ func _physics_process(delta: float) -> void:
 
 	var drive_force := 0.0
 	if drive > 0.0:
-		var ratio := maxf(speed, 0.0) / (max_speed_kmh / 3.6)
+		var top_kmh := lerpf(max_speed_kmh, boost_max_speed_kmh, _boost_blend)
+		var ratio := maxf(speed, 0.0) / (top_kmh / 3.6)
 		drive_force = engine_force * drive * clampf(1.0 - ratio * ratio, 0.0, 1.0)
 	elif drive < 0.0:
 		var ratio := maxf(-speed, 0.0) / (max_reverse_speed_kmh / 3.6)
@@ -188,6 +215,12 @@ func _physics_process(delta: float) -> void:
 	# Body forces
 	if grounded_wheels > 0:
 		apply_central_force(-up * downforce * vel.length_squared())
+		if is_boosting and speed > -1.0:
+			# Nitro thrust along the ground, fading out toward the boosted top speed.
+			var ground := Plane(up).project(forward).normalized()
+			var t := maxf(speed, 0.0) / (boost_max_speed_kmh / 3.6)
+			var push := boost_force * clampf(1.0 - t * t * t, 0.0, 1.0) * grounded_wheels / 4.0
+			apply_central_force(ground * push)
 		# Keep assisting while grip is still recovering, so the exit doesn't snap back.
 		if is_drifting or rear_grip_factor < 0.97:
 			_apply_drift_assist(up, abs_speed)
@@ -209,6 +242,28 @@ func _update_steering(delta: float, abs_speed: float) -> void:
 	var speed_t := clampf(abs_speed * 3.6 / steer_falloff_speed_kmh, 0.0, 1.0)
 	var max_angle := lerpf(max_steer_angle, high_speed_steer_angle, sqrt(speed_t))
 	steer_angle = deg_to_rad(max_angle) * _steer_input
+
+
+func _update_boost(delta: float) -> void:
+	if not input.boost:
+		_boost_locked = false
+	var want := input.boost and not _boost_locked
+	if want and not is_boosting and boost_amount < boost_min_to_start and boost_cooldown_left <= 0.0:
+		want = false  # Ran dry and only just refilling: wait for a usable amount.
+	is_boosting = want and boost_amount > 0.0
+	if is_boosting:
+		boost_amount = maxf(boost_amount - delta / boost_duration, 0.0)
+		boost_cooldown_left = boost_cooldown
+		if boost_amount <= 0.0:
+			is_boosting = false
+			_boost_locked = true  # Must release and press again.
+	elif boost_cooldown_left > 0.0:
+		boost_cooldown_left = maxf(boost_cooldown_left - delta, 0.0)
+	else:
+		boost_amount = minf(boost_amount + delta / boost_refill_time, 1.0)
+	# Top speed rises quickly with the boost and relaxes slowly afterwards (coasts down, no wall).
+	var rate := 3.0 if is_boosting else 0.5
+	_boost_blend = move_toward(_boost_blend, 1.0 if is_boosting else 0.0, rate * delta)
 
 
 func _update_slip(delta: float, vel: Vector3, forward: Vector3, right: Vector3) -> void:
@@ -240,6 +295,7 @@ func _update_drift_state(delta: float, abs_speed: float) -> void:
 		is_drifting = false
 
 	var target := 1.0
+	_release_time = 0.0 if input.handbrake or not is_drifting else _release_time + delta
 	if input.handbrake:
 		target = handbrake_grip
 	elif is_drifting:
@@ -249,13 +305,19 @@ func _update_drift_state(delta: float, abs_speed: float) -> void:
 		# Counter-steering catches the slide; lifting off makes it quicker, throttle keeps it going.
 		recover += _countersteer() * drift_countersteer_recovery * (1.0 - 0.5 * input.throttle)
 		recover -= input.throttle * drift_throttle_hold * hold_t
+		# The slide settles by itself over time; throttle only slows that down (short sustains stay possible).
+		recover += _release_time * drift_release_recovery * (1.0 - 0.7 * input.throttle)
 		target = lerpf(drift_grip, 1.0, clampf(recover, 0.0, 1.0))
 	if is_drifting:
 		# Past the angle limit the rear bites back in, pulling the car straight instead of spinning.
 		var limit := _drift_angle_limit(abs_speed)
 		var over_t := clampf((abs_slip - limit * 0.85) / (limit * 0.35), 0.0, 1.0)
 		target = lerpf(target, 1.0, over_t * 0.8)
-	var rate := drift_recovery_speed if target > rear_grip_factor else handbrake_grip_rate
+	var rate := handbrake_grip_rate
+	if target > rear_grip_factor:
+		rate = drift_recovery_speed
+		if not input.handbrake:
+			rate += _countersteer() * drift_countersteer_recovery_speed
 	rear_grip_factor = move_toward(rear_grip_factor, target, rate * delta)
 
 
@@ -277,7 +339,10 @@ func _apply_drift_assist(up: Vector3, abs_speed: float) -> void:
 		steer_gain *= clampf(1.0 - (abs_slip - limit * 0.6) / (limit * 0.4), 0.0, 1.0)
 	# Positive yaw (around up) turns left; positive steer is right.
 	var yaw_accel := -_steer_input * steer_gain * strength
-	yaw_accel -= yaw_rate * drift_yaw_damping * strength
+	var yaw_damp := drift_yaw_damping
+	if not input.handbrake:
+		yaw_damp += release_yaw_damping
+	yaw_accel -= yaw_rate * yaw_damp * strength
 	# Slip grows with positive yaw: damp its rate of change (radians). Light while the angle builds
 	# up (so drifts still kick out), firm near the limit and when swinging back (no snap-back).
 	var growing := signf(_slip_rate) == signf(slip_angle)

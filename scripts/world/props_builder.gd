@@ -1,12 +1,15 @@
 class_name PropsBuilder
 extends RefCounted
-## Roadside objects and landmarks: marker posts, fences, farms, hay bales, wind turbines, clouds.
+## Roadside objects and landmarks: marker posts, fences, highway guard rails and median barrier,
+## farms, hay bales, wind turbines, clouds.
 
 const MARKER_SPACING := 12   ## In road samples (2 m each).
+const RAIL_SPACING := 3      ## Highway guard rail / barrier section length, in road samples.
 
 
 ## Appends the areas it occupies to `clear_zones`. Returns the turbine rotors so they can be animated.
-static func build(parent: Node3D, terrain: TerrainData, road: RoadPath, clear_zones: Array[Vector3], world_seed: int) -> Array[Node3D]:
+static func build(parent: Node3D, terrain: TerrainData, roads: Array[RoadPath], junctions: Array[Vector3],
+		clear_zones: Array[Vector3], world_seed: int) -> Array[Node3D]:
 	var root := Node3D.new()
 	root.name = "Props"
 	parent.add_child(root)
@@ -16,41 +19,101 @@ static func build(parent: Node3D, terrain: TerrainData, road: RoadPath, clear_zo
 	body.name = "PropColliders"
 	body.set_meta(&"surface", &"grass")
 	root.add_child(body)
+	var rails := Node3D.new()
+	rails.name = "RailColliders"
+	rails.set_meta(&"surface", &"road")
+	root.add_child(rails)
+	var rail_colliders := ColliderBatch.new(250.0)
 
-	_build_marker_posts(root, terrain, road)
-	_build_farms(root, body, terrain, road, clear_zones)
-	_build_fences(root, body, terrain, road)
-	_build_hay_fields(root, body, terrain, road, clear_zones, rng)
+	var markers: Array[Transform3D] = []
+	var fences: Array[Transform3D] = []
+	var rail_xforms: Array[Transform3D] = []
+	var barrier_xforms: Array[Transform3D] = []
+	for road in roads:
+		if road.is_highway:
+			_build_guard_rails(terrain, road, junctions, rail_xforms, barrier_xforms, rail_colliders)
+		else:
+			_build_marker_posts(terrain, road, markers)
+			_build_fences(body, terrain, road, rng, fences)
+	_add_multimesh(root, SceneryMeshes.marker_post(), markers, true)
+	_add_multimesh(root, SceneryMeshes.fence_section(), fences, true)
+	_add_multimesh(root, SceneryMeshes.guard_rail_section(), rail_xforms, true)
+	_add_multimesh(root, SceneryMeshes.median_barrier_section(), barrier_xforms, true)
+	rail_colliders.commit(rails)
+
+	_build_farms(root, body, terrain, roads, clear_zones)
+	_build_hay_fields(root, body, terrain, clear_zones, rng)
 	_build_clouds(root, rng)
-	return _build_turbines(root, terrain)
+	return _build_turbines(root, terrain, clear_zones)
 
 
-static func _build_marker_posts(root: Node3D, terrain: TerrainData, road: RoadPath) -> void:
-	var xforms: Array[Transform3D] = []
+static func _build_marker_posts(terrain: TerrainData, road: RoadPath, xforms: Array[Transform3D]) -> void:
 	for i in range(0, road.sample_count(), MARKER_SPACING):
 		for side: float in [-1.0, 1.0]:
 			var p := road.points[i] + road.right_at(i) * side * (road.half_width + 1.1)
-			# Skip posts that would land on another part of the road.
-			if terrain.get_road_distance(p.x, p.z) < road.half_width + 0.8:
+			# Skip posts that would land on (or right next to) another road.
+			if terrain.get_road_distance(p.x, p.z) < 0.8:
 				continue
 			var basis := Basis.looking_at(road.tangents[i], Vector3.UP)
 			xforms.append(Transform3D(basis, Vector3(p.x, terrain.get_height(p.x, p.z) - 0.05, p.z)))
-	_add_multimesh(root, SceneryMeshes.marker_post(), xforms, true)
 
 
-static func _build_fences(root: Node3D, body: StaticBody3D, terrain: TerrainData, road: RoadPath) -> void:
-	var xforms: Array[Transform3D] = []
+## Guard rails along both outer edges and a concrete barrier on the median, with gaps at junctions.
+static func _build_guard_rails(terrain: TerrainData, road: RoadPath, junctions: Array[Vector3],
+		rail_xforms: Array[Transform3D], barrier_xforms: Array[Transform3D], colliders: ColliderBatch) -> void:
 	var n := road.sample_count()
-	var starts := [0.08, 0.3, 0.55, 0.72, 0.9]
-	for k in starts.size():
+	for s in range(0, n, RAIL_SPACING):
+		var e := (s + RAIL_SPACING) % n
+		var a := road.points[s]
+		var b := road.points[e]
+		var median_gap := _near_junction(a, junctions, 26.0) or _near_junction(b, junctions, 26.0)
+		for side: float in [-1.0, 1.0]:
+			var offset := road.half_width + 0.5
+			var pa := a + road.right_at(s) * side * offset
+			var pb := b + road.right_at(e) * side * offset
+			if _near_junction(pa, junctions, 0.0) or _near_junction(pb, junctions, 0.0):
+				continue
+			pa.y = maxf(terrain.get_height(pa.x, pa.z), a.y - 0.2)
+			pb.y = maxf(terrain.get_height(pb.x, pb.z), b.y - 0.2)
+			var span := pb - pa
+			var basis := Basis.looking_at(span, Vector3.UP)
+			# The beam is modelled on the section's left (-X): run left-hand rails backwards so it faces the road.
+			var rail := Transform3D(basis.scaled_local(Vector3(1.0, 1.0, span.length())), pa)
+			if side < 0.0:
+				rail = Transform3D(Basis.looking_at(-span, Vector3.UP).scaled_local(Vector3(1.0, 1.0, span.length())), pb)
+			rail_xforms.append(rail)
+			colliders.add_box((pa + pb) * 0.5 + Vector3.UP * 0.55, basis, Vector3(0.25, 1.1, span.length() + 0.05))
+		if median_gap:
+			continue
+		var m_span := b - a
+		var m_basis := Basis.looking_at(m_span, Vector3.UP)
+		barrier_xforms.append(Transform3D(m_basis.scaled_local(Vector3(1.0, 1.0, m_span.length())), a + Vector3.DOWN * 0.02))
+		colliders.add_box((a + b) * 0.5 + Vector3.UP * 0.42, m_basis, Vector3(0.5, 0.85, m_span.length() + 0.05))
+
+
+static func _near_junction(p: Vector3, junctions: Array[Vector3], extra: float) -> bool:
+	for j in junctions:
+		var r := j.z + extra
+		if Vector2(p.x - j.x, p.z - j.y).length_squared() < r * r:
+			return true
+	return false
+
+
+static func _build_fences(body: StaticBody3D, terrain: TerrainData, road: RoadPath, rng: RandomNumberGenerator,
+		xforms: Array[Transform3D]) -> void:
+	var n := road.sample_count()
+	var count := maxi(int(road.length / 340.0), 1)
+	for k in count:
 		var side := 1.0 if k % 2 == 0 else -1.0
 		var offset := road.half_width + 5.5
-		var first := int(starts[k] * n)
+		var first := int((k + rng.randf_range(0.1, 0.6)) / count * n)
 		var prev := Vector3.INF
 		for s in range(first, first + 70, 2):
+			if not road.closed and s >= n:
+				break
 			var i := s % n
 			var p := road.points[i] + road.right_at(i) * side * offset
-			if terrain.get_road_distance(p.x, p.z) < offset - 0.5:
+			if terrain.get_road_distance(p.x, p.z) < 5.0:
 				prev = Vector3.INF
 				continue
 			p.y = terrain.get_height(p.x, p.z)
@@ -66,27 +129,32 @@ static func _build_fences(root: Node3D, body: StaticBody3D, terrain: TerrainData
 				shape.transform = Transform3D(Basis.looking_at(span, Vector3.UP), (prev + p) * 0.5 + Vector3.UP * 0.6)
 				body.add_child(shape)
 			prev = p
-	_add_multimesh(root, SceneryMeshes.fence_section(), xforms, true)
 
 
-static func _build_farms(root: Node3D, body: StaticBody3D, terrain: TerrainData, road: RoadPath, clear_zones: Array[Vector3]) -> void:
-	var n := road.sample_count()
-	var sites := [[0.2, 1.0], [0.47, -1.0], [0.8, 1.0]]
-	for site in sites:
-		var placed := false
-		for attempt in 40:
-			var i := (int(site[0] * n) + attempt * 3) % n
-			var side: float = site[1]
-			var center := road.points[i] + road.right_at(i) * side * (road.half_width + 22.0)
-			if terrain.get_road_distance(center.x, center.z) < road.half_width + 18.0:
-				continue
-			if terrain.get_normal(center.x, center.z, 6.0).y < 0.93:
-				continue
-			_place_farm(root, body, terrain, center, road.points[i], clear_zones)
-			placed = true
-			break
-		if not placed:
-			push_warning("PropsBuilder: no flat site found for a farm near %.2f" % site[0])
+static func _build_farms(root: Node3D, body: StaticBody3D, terrain: TerrainData, roads: Array[RoadPath],
+		clear_zones: Array[Vector3]) -> void:
+	for road in roads:
+		if road.is_highway:
+			continue
+		var sites := [[0.2, 1.0], [0.47, -1.0], [0.8, 1.0]] if road.closed else [[0.35, 1.0], [0.7, -1.0]]
+		var n := road.sample_count()
+		for site in sites:
+			var placed := false
+			for attempt in 40:
+				var i := (int(site[0] * n) + attempt * 3) % n
+				var side: float = site[1]
+				var center := road.points[i] + road.right_at(i) * side * (road.half_width + 22.0)
+				if terrain.get_road_distance(center.x, center.z) < 18.0:
+					continue
+				if terrain.get_normal(center.x, center.z, 6.0).y < 0.93:
+					continue
+				if VegetationBuilder._in_clear_zone(center.x, center.z, clear_zones):
+					continue
+				_place_farm(root, body, terrain, center, road.points[i], clear_zones)
+				placed = true
+				break
+			if not placed:
+				push_warning("PropsBuilder: no flat site found for a farm on %s near %.2f" % [road.name, site[0]])
 
 
 static func _place_farm(root: Node3D, body: StaticBody3D, terrain: TerrainData, center: Vector3, face_target: Vector3,
@@ -130,21 +198,22 @@ static func _place_farm(root: Node3D, body: StaticBody3D, terrain: TerrainData, 
 	clear_zones.append(Vector3(center.x, center.z, 14.0))
 
 
-static func _build_hay_fields(root: Node3D, body: StaticBody3D, terrain: TerrainData, road: RoadPath,
+static func _build_hay_fields(root: Node3D, body: StaticBody3D, terrain: TerrainData,
 		clear_zones: Array[Vector3], rng: RandomNumberGenerator) -> void:
 	var xforms: Array[Transform3D] = []
 	var bale_shape := CylinderShape3D.new()
 	bale_shape.radius = 0.75
 	bale_shape.height = 1.3
 	var fields := 0
-	var limit := TerrainData.HALF_SIZE - 40.0
-	for _attempt in 600:
-		if fields >= 7:
+	var limit := TerrainData.HALF_SIZE - 120.0
+	for _attempt in 4000:
+		if fields >= 34:
 			break
 		var cx := rng.randf_range(-limit, limit)
 		var cz := rng.randf_range(-limit, limit)
+		# Fields sit near (but off) the roads, where they can be seen.
 		var rd := terrain.get_road_distance(cx, cz)
-		if rd < road.half_width + 14.0 or rd > 70.0:
+		if rd < 10.0 or (rd > 1e6 and rng.randf() < 0.7):
 			continue
 		if terrain.forest_density(cx, cz) > -0.05 or terrain.get_normal(cx, cz, 8.0).y < 0.95:
 			continue
@@ -155,7 +224,7 @@ static func _build_hay_fields(root: Node3D, body: StaticBody3D, terrain: Terrain
 		for _b in rng.randi_range(4, 9):
 			var x := cx + rng.randf_range(-14.0, 14.0)
 			var z := cz + rng.randf_range(-14.0, 14.0)
-			if terrain.get_road_distance(x, z) < road.half_width + 6.0:
+			if terrain.get_road_distance(x, z) < 6.0:
 				continue
 			var n := terrain.get_normal(x, z)
 			var yaw := Basis(Vector3.UP, rng.randf() * TAU)
@@ -169,17 +238,26 @@ static func _build_hay_fields(root: Node3D, body: StaticBody3D, terrain: Terrain
 	_add_multimesh(root, SceneryMeshes.hay_bale(), xforms, true)
 
 
-static func _build_turbines(root: Node3D, terrain: TerrainData) -> Array[Node3D]:
+## Two wind farms on open ground between the country loop and the highway.
+static func _build_turbines(root: Node3D, terrain: TerrainData, clear_zones: Array[Vector3]) -> Array[Node3D]:
 	var rotors: Array[Node3D] = []
 	var tower_mesh := SceneryMeshes.turbine_tower(48.0)
 	var rotor_mesh := SceneryMeshes.turbine_rotor(21.0)
 	var wind := Basis(Vector3.UP, deg_to_rad(35.0))
-	var spots := [Vector2(-0.6, 1.0), Vector2(-0.2, 1.05), Vector2(0.25, 1.0), Vector2(1.0, -0.35), Vector2(1.05, 0.05)]
+	var spots: Array[Vector2] = []
+	for n in 5:
+		spots.append(Vector2(-560.0 + n * 115.0, -470.0 + (n % 2) * 60.0))
+	for n in 4:
+		spots.append(Vector2(420.0 + (n % 2) * 70.0, 330.0 + n * 120.0))
 	for k in spots.size():
-		var dir: Vector2 = spots[k].normalized()
-		var dist := 410.0 + 25.0 * (k % 2)
-		var x := dir.x * dist
-		var z := dir.y * dist
+		var spot := spots[k]
+		var x := spot.x
+		var z := spot.y
+		# Nudge off any road.
+		for _try in 12:
+			if terrain.get_road_distance(x, z) > 30.0:
+				break
+			x += 25.0
 		var y := terrain.get_height(x, z) - 1.0
 		var tower := MeshInstance3D.new()
 		tower.name = "WindTurbine%d" % k
@@ -193,15 +271,16 @@ static func _build_turbines(root: Node3D, terrain: TerrainData) -> Array[Node3D]
 		rotor.rotation.z = k * 0.9
 		tower.add_child(rotor)
 		rotors.append(rotor)
+		clear_zones.append(Vector3(x, z, 6.0))
 	return rotors
 
 
 static func _build_clouds(root: Node3D, rng: RandomNumberGenerator) -> void:
 	var mb := MeshBuilder.new()
-	for _k in 30:
+	for _k in 70:
 		var angle := rng.randf() * TAU
-		var radius := rng.randf_range(150.0, 2000.0)
-		SceneryMeshes.cloud(rng, Vector3(cos(angle) * radius, rng.randf_range(230.0, 330.0), sin(angle) * radius), mb)
+		var radius := rng.randf_range(150.0, 3600.0)
+		SceneryMeshes.cloud(rng, Vector3(cos(angle) * radius, rng.randf_range(300.0, 420.0), sin(angle) * radius), mb)
 	var mat := StandardMaterial3D.new()
 	mat.vertex_color_use_as_albedo = true
 	mat.roughness = 1.0

@@ -1,7 +1,7 @@
 extends RefCounted
 ## Builds all of the car's sound material from code at startup (no audio assets):
 ## single-cycle engine wavetables for the real-time engine voice, seamless noise/tone loops
-## (tyres, wind, road, gravel) and short one-shots (thumps, impacts, clicks).
+## (tyres, wind, road, gravel, nitro) and short one-shots (thumps, impacts, clicks, boost whoosh).
 ## Everything is mono 16-bit at RATE; the looped material is made seamless by construction
 ## (integer-Hz tones over whole seconds) or by an equal-power crossfade of the loop ends.
 
@@ -15,6 +15,7 @@ static var _rng := RandomNumberGenerator.new()
 ## One full 4-stroke cycle (two crank turns) of an inline-4: four firing pulses with slightly
 ## uneven spacing and strength, which gives the low "burble" sub-harmonics a perfect engine lacks.
 ## `on_throttle` makes sharper, brighter pulses; off-throttle pulses are rounder and softer.
+## A crank-order (half the firing rate) and a weaker half-order component add low-end body.
 ## The table has `size + 1` entries (last = first) for branch-free linear interpolation.
 static func engine_table(size: int, on_throttle: bool) -> PackedFloat32Array:
 	var offsets: Array[float] = [0.0, 0.253, 0.497, 0.752]
@@ -27,6 +28,10 @@ static func engine_table(size: int, on_throttle: bool) -> PackedFloat32Array:
 		for c in 4:
 			var u := fposmod(ph - offsets[c], 1.0) * 4.0  # Firing periods since this cylinder fired.
 			s += amps[c] * _firing_pulse(u, on_throttle)
+		# Sub-octave body: 2 and 1 cycles per table (crank order and half order), phase-locked
+		# to the first firing so they reinforce the pulses rather than smear them.
+		var body := 0.13 if on_throttle else 0.11
+		s += body * sin(TAU * ph * 2.0 + 0.9) + body * 0.4 * sin(TAU * ph + 0.4)
 		table[i] = s
 	# Circular box blur (3 passes) band-limits the table so high RPM does not alias.
 	for _pass in 3:
@@ -123,6 +128,69 @@ static func gravel_loop() -> AudioStreamWAV:
 	var out := _seamless(raw, fade)
 	_normalize(out, 0.9)
 	return make_wav(out, true)
+
+
+## Nitro: a rising turbo whine (integer-Hz partials, seamless over 1 s), airy hiss and a low
+## thrust roar. Pitch/volume are driven by the boost spool at runtime.
+static func boost_loop() -> AudioStreamWAV:
+	_rng.seed = 37
+	var n := RATE
+	var hiss := _seamless(_band_noise(n + 2000, 700.0, 5000.0), 2000)
+	var roar := _seamless(_band_noise(n + 2000, 45.0, 260.0), 2000)
+	_normalize(hiss, 1.0)
+	_normalize(roar, 1.0)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	for i in n:
+		var t := float(i) / RATE
+		var whine := sin(TAU * 1460.0 * t) * 0.5 + sin(TAU * 2920.0 * t + 0.7) * 0.16 \
+				+ sin(TAU * 1467.0 * t + 1.3) * 0.25  # Slight detune beats like a spinning turbine.
+		var flutter := 0.85 + 0.15 * sin(TAU * 11.0 * t)
+		out[i] = whine * 0.35 * flutter + hiss[i] * 0.45 + roar[i] * 0.75
+	_normalize(out, 0.9)
+	return make_wav(out, true)
+
+
+## Boost kick-in: a swelling, rising noise sweep with a short low punch.
+static func boost_whoosh() -> AudioStreamWAV:
+	_rng.seed = 41
+	var n := int(RATE * 0.9)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var hi := 0.0
+	var lo := 0.0
+	var phase := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		var k := t / 0.9
+		var cutoff := lerpf(300.0, 4200.0, sqrt(k))
+		hi += (_rng.randf_range(-1.0, 1.0) - hi) * (1.0 - exp(-TAU * cutoff / RATE))
+		lo += (hi - lo) * (1.0 - exp(-TAU * cutoff * 0.25 / RATE))
+		var env := minf(t / 0.12, 1.0) * exp(-maxf(t - 0.12, 0.0) / 0.28)
+		phase += lerpf(70.0, 40.0, minf(t / 0.25, 1.0)) / RATE
+		var punch := sin(TAU * phase) * exp(-t / 0.12) * minf(t / 0.01, 1.0)
+		out[i] = (hi - lo) * env + punch * 0.5
+	_normalize(out, 0.9)
+	return make_wav(out, false)
+
+
+## Boost end: a short "pssh" blow-off, bright hiss with a falling band.
+static func blow_off() -> AudioStreamWAV:
+	_rng.seed = 43
+	var n := int(RATE * 0.5)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var hi := 0.0
+	var lo := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		var cutoff := lerpf(6000.0, 1800.0, minf(t / 0.4, 1.0))
+		hi += (_rng.randf_range(-1.0, 1.0) - hi) * (1.0 - exp(-TAU * cutoff / RATE))
+		lo += (hi - lo) * (1.0 - exp(-TAU * 900.0 / RATE))
+		var env := minf(t / 0.008, 1.0) * exp(-t / 0.13)
+		out[i] = (hi - lo) * env
+	_normalize(out, 0.85)
+	return make_wav(out, false)
 
 
 # --- One-shots ---------------------------------------------------------------------------------

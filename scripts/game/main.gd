@@ -37,7 +37,7 @@ func _physics_process(_delta: float) -> void:
 
 
 func reset_car() -> void:
-	car.reset_to(world.get_reset_transform(car.global_position))
+	car.reset_to(world.get_reset_transform(car.global_position, -car.global_basis.z))
 	chase_camera.snap()
 
 

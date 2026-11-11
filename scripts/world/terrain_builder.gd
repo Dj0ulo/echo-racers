@@ -2,17 +2,30 @@ class_name TerrainBuilder
 extends RefCounted
 ## Builds the flat-shaded terrain meshes (playable area + distant mountains) and the terrain collider.
 
-const FAR_CELL := 44.0   ## TerrainData.HALF_SIZE is a multiple of this so the far grid lines up with the inner one.
-const FAR_CELLS := 68    ## Far terrain spans +-FAR_CELL * FAR_CELLS (~3 km).
+const FAR_CELL := 96.0   ## TerrainData.HALF_SIZE is a multiple of this so the far grid lines up with the inner one.
+const FAR_CELLS := 44    ## Far terrain spans +-FAR_CELL * FAR_CELLS (~4.2 km).
 const SKIRT_DEPTH := 20.0
+const CHUNK_CELLS := 32  ## The detailed terrain is split in chunks so off-screen parts get frustum-culled.
 
 
 static func build(parent: Node3D, terrain: TerrainData) -> void:
-	var inner := MeshInstance3D.new()
-	inner.name = "Terrain"
-	inner.mesh = _build_inner_mesh(terrain)
-	inner.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	parent.add_child(inner)
+	var root := Node3D.new()
+	root.name = "Terrain"
+	parent.add_child(root)
+	var chunks_per_side := floori(float(TerrainData.CELLS) / CHUNK_CELLS)
+	var builders: Array[MeshBuilder] = []
+	builders.resize(chunks_per_side * chunks_per_side)
+	var mutex := Mutex.new()
+	var task := WorkerThreadPool.add_group_task(_build_chunk.bind(terrain, builders, mutex, chunks_per_side),
+			builders.size(), -1, true, "Terrain chunks")
+	WorkerThreadPool.wait_for_group_task_completion(task)
+	var material := Palette.vertex_material(0.95)
+	for k in builders.size():
+		var chunk := MeshInstance3D.new()
+		chunk.name = "Chunk%d" % k
+		chunk.mesh = builders[k].commit(material)
+		chunk.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		root.add_child(chunk)
 
 	var far := MeshInstance3D.new()
 	far.name = "FarTerrain"
@@ -32,53 +45,79 @@ static func build(parent: Node3D, terrain: TerrainData) -> void:
 	_add_boundary_walls(parent)
 
 
-static func _build_inner_mesh(terrain: TerrainData) -> ArrayMesh:
+## Worker task: flat-shaded triangles of one chunk (plus the outer skirt if it touches the edge).
+static func _build_chunk(k: int, terrain: TerrainData, builders: Array[MeshBuilder], mutex: Mutex, per_side: int) -> void:
 	var mb := MeshBuilder.new()
 	var rng := RandomNumberGenerator.new()
-	rng.seed = 4242
+	rng.seed = 4242 + k
 	var n := TerrainData.VERTS
-	for j in TerrainData.CELLS:
-		for i in TerrainData.CELLS:
-			var p00 := terrain.vertex_position(i, j)
-			var p10 := terrain.vertex_position(i + 1, j)
-			var p01 := terrain.vertex_position(i, j + 1)
-			var p11 := terrain.vertex_position(i + 1, j + 1)
-			var r00 := terrain.road_distance[j * n + i]
-			var r10 := terrain.road_distance[j * n + i + 1]
-			var r01 := terrain.road_distance[(j + 1) * n + i]
-			var r11 := terrain.road_distance[(j + 1) * n + i + 1]
-			_add_terrain_triangle(mb, terrain, p00, p10, p01, (r00 + r10 + r01) / 3.0, rng.randf_range(-0.04, 0.04))
-			_add_terrain_triangle(mb, terrain, p10, p11, p01, (r10 + r11 + r01) / 3.0, rng.randf_range(-0.04, 0.04))
+	var ci0 := (k % per_side) * CHUNK_CELLS
+	var cj0 := floori(float(k) / per_side) * CHUNK_CELLS
+	# Local references: reading another object's packed arrays per vertex is slow from worker threads.
+	var dist := terrain.road_distance
+	var hts := terrain.heights
+	var patches := terrain._patches
+	var forest := terrain._forest
+	var cs := TerrainData.CELL_SIZE
+	var origin := -TerrainData.HALF_SIZE
+	for j in range(cj0, cj0 + CHUNK_CELLS):
+		var z0 := origin + j * cs
+		var z1 := z0 + cs
+		for i in range(ci0, ci0 + CHUNK_CELLS):
+			var x0 := origin + i * cs
+			var x1 := x0 + cs
+			var k00 := j * n + i
+			var k01 := k00 + n
+			var p00 := Vector3(x0, hts[k00], z0)
+			var p10 := Vector3(x1, hts[k00 + 1], z0)
+			var p01 := Vector3(x0, hts[k01], z1)
+			var p11 := Vector3(x1, hts[k01 + 1], z1)
+			var r00 := dist[k00]
+			var r10 := dist[k00 + 1]
+			var r01 := dist[k01]
+			var r11 := dist[k01 + 1]
+			_add_terrain_triangle(mb, patches, forest, p00, p10, p01, minf(r00, minf(r10, r01)), (r00 + r10 + r01) / 3.0,
+					rng.randf_range(-0.04, 0.04))
+			_add_terrain_triangle(mb, patches, forest, p10, p11, p01, minf(r10, minf(r11, r01)), (r10 + r11 + r01) / 3.0,
+					rng.randf_range(-0.04, 0.04))
 
-	# Skirt around the edge hides any crack against the coarser far terrain.
+	# Skirt around the outer edge hides any crack against the coarser far terrain.
 	var last := TerrainData.CELLS
-	for k in TerrainData.CELLS:
-		_add_skirt(mb, terrain.vertex_position(k, 0), terrain.vertex_position(k + 1, 0), Vector3.FORWARD)
-		_add_skirt(mb, terrain.vertex_position(k, last), terrain.vertex_position(k + 1, last), Vector3.BACK)
-		_add_skirt(mb, terrain.vertex_position(0, k), terrain.vertex_position(0, k + 1), Vector3.LEFT)
-		_add_skirt(mb, terrain.vertex_position(last, k), terrain.vertex_position(last, k + 1), Vector3.RIGHT)
-	return mb.commit(Palette.vertex_material(0.95))
+	for c in range(0, CHUNK_CELLS):
+		var i := ci0 + c
+		var j := cj0 + c
+		if cj0 == 0:
+			_add_skirt(mb, terrain.vertex_position(i, 0), terrain.vertex_position(i + 1, 0), Vector3.FORWARD)
+		if cj0 + CHUNK_CELLS == last:
+			_add_skirt(mb, terrain.vertex_position(i, last), terrain.vertex_position(i + 1, last), Vector3.BACK)
+		if ci0 == 0:
+			_add_skirt(mb, terrain.vertex_position(0, j), terrain.vertex_position(0, j + 1), Vector3.LEFT)
+		if ci0 + CHUNK_CELLS == last:
+			_add_skirt(mb, terrain.vertex_position(last, j), terrain.vertex_position(last, j + 1), Vector3.RIGHT)
+	mutex.lock()
+	builders[k] = mb
+	mutex.unlock()
 
 
-static func _add_terrain_triangle(mb: MeshBuilder, terrain: TerrainData, a: Vector3, b: Vector3, c: Vector3,
-		road_d: float, shade: float) -> void:
+## `road_min` / `road_avg`: smallest and mean distance of the corners to a road edge.
+static func _add_terrain_triangle(mb: MeshBuilder, patches: FastNoiseLite, forest: FastNoiseLite, a: Vector3, b: Vector3, c: Vector3,
+		road_min: float, road_avg: float, shade: float) -> void:
 	var n := (c - a).cross(b - a).normalized()
 	var cx := (a.x + b.x + c.x) / 3.0
 	var cz := (a.z + b.z + c.z) / 3.0
 	var h := (a.y + b.y + c.y) / 3.0
 	var slope := 1.0 - n.y
 
-	var p := terrain.patch_noise(cx, cz) * 0.5 + 0.5
+	var p := patches.get_noise_2d(cx, cz) * 0.5 + 0.5
 	var col := Palette.GRASS_LIGHT.lerp(Palette.GRASS_DARK, smoothstep(0.3, 0.75, p))
 	col = col.lerp(Palette.GRASS_DRY, clampf((h - 12.0) / 45.0, 0.0, 0.45))
-	col = col.lerp(Palette.GRASS_DARK.darkened(0.12), smoothstep(0.05, 0.4, terrain.forest_density(cx, cz)) * 0.6)
+	col = col.lerp(Palette.GRASS_DARK.darkened(0.12), smoothstep(0.05, 0.4, forest.get_noise_2d(cx, cz)) * 0.6)
 	col = col.lerp(Palette.DIRT, smoothstep(0.2, 0.34, slope))
 	col = col.lerp(Palette.ROCK, smoothstep(0.38, 0.58, slope))
-	var edge := terrain.road_half_width
-	if road_d < edge + 1.7:
+	if road_avg < 1.8 or road_min < -1.0:
 		col = Palette.GRAVEL
-	elif road_d < edge + 3.4:
-		col = col.lerp(Palette.GRAVEL, 0.35)
+	elif road_avg < 4.0:
+		col = col.lerp(Palette.GRAVEL, 0.4)
 	var k := 1.0 + shade
 	mb.add_triangle(a, b, c, Color(col.r * k, col.g * k, col.b * k))
 

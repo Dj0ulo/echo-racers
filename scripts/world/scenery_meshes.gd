@@ -196,3 +196,40 @@ static func cloud(rng: RandomNumberGenerator, offset: Vector3, mb: MeshBuilder) 
 		var pos := offset + Vector3(t * length, rng.randf_range(-2.0, 5.0), rng.randf_range(-8.0, 8.0))
 		var basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(1.3, 0.55, 1.0))
 		mb.add_primitive(sphere(r, r * 2.0, 7, 4), Transform3D(basis, pos), Palette.CLOUD, 0.1, 0.03)
+
+
+## Cheap stand-ins for trees seen from far away (a handful of triangles each).
+static func pine_tree_lod() -> ArrayMesh:
+	var mb := MeshBuilder.new()
+	mb.add_primitive(cylinder(2.0, 0.0, 5.6, 5), Transform3D(Basis(), Vector3(0, 1.0 + 2.8, 0)), Palette.PINE.lerp(Palette.PINE_LIGHT, 0.3))
+	return mb.commit(Palette.vertex_material(0.95))
+
+
+static func broadleaf_tree_lod(leaf_color: Color) -> ArrayMesh:
+	var mb := MeshBuilder.new()
+	mb.add_primitive(sphere(2.1, 3.6, 5, 2), Transform3D(Basis(), Vector3(0, 3.8, 0)), leaf_color)
+	return mb.commit(Palette.vertex_material(0.95))
+
+
+## Steel guard rail spanning 1 m along -Z (scaled along Z by the instance transform), post at the origin.
+static func guard_rail_section() -> ArrayMesh:
+	var mb := MeshBuilder.new()
+	mb.add_box(Vector3(0, 0.4, 0), Vector3(0.12, 0.8, 0.12), Palette.ROCK_DARK)
+	mb.add_box(Vector3(-0.08, 0.62, -0.5), Vector3(0.05, 0.3, 1.0), Palette.SILO)
+	mb.add_box(Vector3(-0.1, 0.62, -0.5), Vector3(0.02, 0.06, 1.0), Palette.ROCK)
+	return mb.commit(Palette.vertex_material(0.45))
+
+
+## Concrete median barrier spanning 1 m along -Z (scaled along Z by the instance transform).
+static func median_barrier_section() -> ArrayMesh:
+	var mb := MeshBuilder.new()
+	var profile := PackedVector2Array([Vector2(-0.3, 0.0), Vector2(-0.22, 0.2), Vector2(-0.1, 0.85),
+		Vector2(0.1, 0.85), Vector2(0.22, 0.2), Vector2(0.3, 0.0)])
+	var concrete := Color(0.74, 0.73, 0.70)
+	for k in profile.size() - 1:
+		var a := profile[k]
+		var b := profile[k + 1]
+		var facing := Vector3(b.y - a.y, a.x - b.x, 0.0) * -1.0
+		mb.add_quad_facing(Vector3(a.x, a.y, 0), Vector3(b.x, b.y, 0), Vector3(b.x, b.y, -1), Vector3(a.x, a.y, -1),
+				facing, concrete.darkened(0.08 * (k % 2)))
+	return mb.commit(Palette.vertex_material(0.9))
