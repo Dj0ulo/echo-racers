@@ -1,0 +1,42 @@
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="Script" path="res://scripts/vehicle/car_controller.gd" id="1_ctrl"]
+[ext_resource type="Script" path="res://scripts/vehicle/vehicle_input.gd" id="2_input"]
+[ext_resource type="Script" path="res://scripts/vehicle/car_visuals.gd" id="3_vis"]
+
+[sub_resource type="PhysicsMaterial" id="PhysicsMaterial_body"]
+friction = 0.3
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_body"]
+size = Vector3(1.75, 0.72, 4.3)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_cabin"]
+size = Vector3(1.3, 0.4, 2.1)
+
+[node name="Car" type="RigidBody3D"]
+collision_layer = 2
+collision_mask = 1
+mass = 1200.0
+physics_material_override = SubResource("PhysicsMaterial_body")
+center_of_mass_mode = 1
+center_of_mass = Vector3(0, -0.25, 0)
+continuous_cd = true
+can_sleep = false
+linear_damp_mode = 1
+angular_damp_mode = 1
+angular_damp = 1.0
+script = ExtResource("1_ctrl")
+
+[node name="BodyShape" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.11, 0)
+shape = SubResource("BoxShape3D_body")
+
+[node name="CabinShape" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.64, 0.55)
+shape = SubResource("BoxShape3D_cabin")
+
+[node name="Input" type="Node" parent="."]
+script = ExtResource("2_input")
+
+[node name="Visuals" type="Node3D" parent="."]
+script = ExtResource("3_vis")

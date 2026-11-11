@@ -1,0 +1,72 @@
+[gd_scene load_steps=11 format=3]
+
+[ext_resource type="Script" path="res://scripts/game/main.gd" id="1_main"]
+[ext_resource type="Script" path="res://scripts/world/world_generator.gd" id="2_world"]
+[ext_resource type="PackedScene" path="res://scenes/car.tscn" id="3_car"]
+[ext_resource type="Script" path="res://scripts/camera/chase_camera.gd" id="4_cam"]
+[ext_resource type="Script" path="res://scripts/game/hud.gd" id="5_hud"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
+sky_top_color = Color(0.28, 0.5, 0.82, 1)
+sky_horizon_color = Color(0.74, 0.81, 0.89, 1)
+sky_curve = 0.12
+ground_bottom_color = Color(0.36, 0.42, 0.36, 1)
+ground_horizon_color = Color(0.74, 0.81, 0.89, 1)
+sun_angle_max = 20.0
+sun_curve = 0.1
+
+[sub_resource type="Sky" id="Sky_main"]
+sky_material = SubResource("ProceduralSkyMaterial_sky")
+radiance_size = 1
+
+[sub_resource type="Environment" id="Environment_main"]
+background_mode = 2
+sky = SubResource("Sky_main")
+ambient_light_source = 3
+ambient_light_energy = 1.0
+reflected_light_source = 2
+tonemap_mode = 2
+tonemap_white = 6.0
+glow_enabled = true
+glow_intensity = 0.35
+glow_bloom = 0.03
+fog_enabled = true
+fog_light_color = Color(0.74, 0.81, 0.89, 1)
+fog_sun_scatter = 0.25
+fog_density = 0.0011
+fog_aerial_perspective = 0.4
+fog_sky_affect = 0.3
+adjustment_enabled = true
+adjustment_saturation = 1.12
+
+[node name="Main" type="Node3D"]
+process_mode = 3
+script = ExtResource("1_main")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_main")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(-0.76604, 0.34063, -0.54511, 0, 0.84805, 0.52992, 0.64279, 0.40594, -0.64964, 0, 50, 0)
+light_color = Color(1, 0.94, 0.84, 1)
+light_energy = 1.3
+shadow_enabled = true
+directional_shadow_mode = 1
+directional_shadow_max_distance = 140.0
+
+[node name="World" type="Node3D" parent="."]
+process_mode = 1
+script = ExtResource("2_world")
+
+[node name="Car" parent="." instance=ExtResource("3_car")]
+process_mode = 1
+
+[node name="ChaseCamera" type="Camera3D" parent="."]
+process_mode = 1
+current = true
+far = 4500.0
+script = ExtResource("4_cam")
+target_path = NodePath("../Car")
+
+[node name="HUD" type="CanvasLayer" parent="."]
+script = ExtResource("5_hud")
