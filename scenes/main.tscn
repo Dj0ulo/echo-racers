@@ -1,10 +1,11 @@
-[gd_scene load_steps=11 format=3]
+[gd_scene load_steps=12 format=3]
 
 [ext_resource type="Script" path="res://scripts/game/main.gd" id="1_main"]
 [ext_resource type="Script" path="res://scripts/world/world_generator.gd" id="2_world"]
 [ext_resource type="PackedScene" path="res://scenes/car.tscn" id="3_car"]
 [ext_resource type="Script" path="res://scripts/camera/chase_camera.gd" id="4_cam"]
 [ext_resource type="Script" path="res://scripts/game/hud.gd" id="5_hud"]
+[ext_resource type="Script" path="res://scripts/camera/speed_effects.gd" id="6_speedfx"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
 sky_top_color = Color(0.28, 0.5, 0.82, 1)
@@ -67,6 +68,9 @@ current = true
 far = 4500.0
 script = ExtResource("4_cam")
 target_path = NodePath("../Car")
+
+[node name="SpeedEffects" type="Node3D" parent="ChaseCamera"]
+script = ExtResource("6_speedfx")
 
 [node name="HUD" type="CanvasLayer" parent="."]
 script = ExtResource("5_hud")

@@ -1,8 +1,9 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene load_steps=8 format=3]
 
 [ext_resource type="Script" path="res://scripts/vehicle/car_controller.gd" id="1_ctrl"]
 [ext_resource type="Script" path="res://scripts/vehicle/vehicle_input.gd" id="2_input"]
 [ext_resource type="Script" path="res://scripts/vehicle/car_visuals.gd" id="3_vis"]
+[ext_resource type="Script" path="res://scripts/vehicle/car_audio.gd" id="4_audio"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_body"]
 friction = 0.3
@@ -40,3 +41,6 @@ script = ExtResource("2_input")
 
 [node name="Visuals" type="Node3D" parent="."]
 script = ExtResource("3_vis")
+
+[node name="Audio" type="Node" parent="."]
+script = ExtResource("4_audio")
