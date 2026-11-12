@@ -41,7 +41,9 @@ func _process(delta: float) -> void:
 	# Extra smoothing so effects never pop on/off with small speed changes.
 	var speed_ms := target.linear_velocity.length()
 	var boost := _camera.boost_fx * boost_intensity * clampf(speed_ms * 3.6 / boost_min_speed_kmh - 0.5, 0.0, 1.0)
-	var goal := clampf(_camera.speed_fx + boost, 0.0, 1.0)
+	# Streaks/overlay only make sense facing the road ahead: fade them out when free-looking
+	# sideways or in the rear view.
+	var goal := clampf(_camera.speed_fx + boost, 0.0, 1.0) * _camera.view_alignment
 	_intensity = lerpf(_intensity, goal, 1.0 - exp(-4.0 * delta))
 	_apply(_intensity, speed_ms)
 

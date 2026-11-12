@@ -5,6 +5,9 @@ extends Camera3D
 ## noise-based high-speed shake, looks ahead, and avoids clipping into terrain.
 ## Exposes `speed_fx` (0..1, ramps in above `fx_start_speed_kmh`) and `boost_fx` (0..1, smoothed
 ## nitro state) for SpeedEffects. Boosting widens the FOV and pulls the camera back a little.
+## Free look: the right stick orbits the camera up to ±90° around the car (plus a little pitch) and
+## springs back behind it on release; holding the stick down (or `look_back`) shows the rear view
+## from in front of the car. `view_alignment` tells SpeedEffects how much the view faces the road ahead.
 
 @export var target_path: NodePath
 @export var distance := 6.2
@@ -37,12 +40,25 @@ extends Camera3D
 @export var boost_pull_back := 0.5          ## Extra metres of distance while boosting.
 @export var boost_shake := 0.5              ## Extra shake amount (0..1 scale) while boosting.
 
+@export_group("Free Look")
+@export var look_max_yaw_deg := 90.0        ## Stick pans at most this far either side of straight behind.
+@export var look_max_pitch_up_deg := 14.0   ## Camera rises this much with the stick held down (below the look-back threshold).
+@export var look_max_pitch_down_deg := 6.0  ## Camera lowers this much with the stick pushed up.
+@export var look_follow_speed := 9.0        ## Smoothing toward the stick's target angle.
+@export var look_return_speed := 5.0        ## Spring-back speed once the stick is released.
+@export var look_back_threshold := 0.7      ## Stick-down strength that switches to the rear view.
+@export var look_back_distance := 5.2       ## Distance in front of the car for the rear view.
+
 ## 0..1 high-speed intensity (smoothstep between fx_start and fx_full), read by SpeedEffects.
 var speed_fx := 0.0
 ## Smoothed forward acceleration (m/s^2).
 var forward_accel := 0.0
 ## 0..1 smoothed boost intensity, read by SpeedEffects.
 var boost_fx := 0.0
+## 0..1 how much the view faces the car's direction of travel (0 when sideways or looking back).
+var view_alignment := 1.0
+## True while the rear view is shown.
+var looking_back := false
 
 var _target: RigidBody3D
 var _focus := Vector3.ZERO
@@ -56,6 +72,8 @@ var _smooth_fov := 68.0
 var _lag := 0.0
 var _time := 0.0
 var _noise := FastNoiseLite.new()
+var _look_yaw := 0.0    ## Radians, positive = view pans to the right (stick right).
+var _look_pitch := 0.0  ## Radians, positive = camera higher.
 
 
 func _ready() -> void:
@@ -91,6 +109,10 @@ func snap() -> void:
 	boost_fx = 0.0
 	_smooth_fov = base_fov
 	fov = base_fov
+	_look_yaw = 0.0
+	_look_pitch = 0.0
+	looking_back = false
+	view_alignment = 1.0
 	_place(0.0)
 
 
@@ -147,15 +169,49 @@ func _process(delta: float) -> void:
 	# Camera lags behind under acceleration and creeps in under braking.
 	var lag_target := clampf(forward_accel * accel_lag, -max_accel_lag * 0.6, max_accel_lag)
 	_lag = lerpf(_lag, lag_target, 1.0 - exp(-3.0 * delta))
+	_update_free_look(delta)
 	_place(speed_t)
 	_apply_shake()
+
+
+## Right stick: smoothed orbit yaw/pitch with deadzone (from the action deadzones), spring-back on
+## release; stick held down past the threshold (or the `look_back` key) cuts to the rear view.
+func _update_free_look(delta: float) -> void:
+	var x := Input.get_axis(&"camera_left", &"camera_right")
+	var y := Input.get_axis(&"camera_up", &"camera_down")  # + = stick pulled toward the player.
+	looking_back = Input.is_action_pressed(&"look_back") \
+		or (y > look_back_threshold and y > absf(x))
+	if looking_back:
+		# Hard cut like a rear-view button; free look resumes from straight behind on release.
+		_look_yaw = 0.0
+		_look_pitch = 0.0
+		view_alignment = 0.0
+		return
+	var yaw_target := x * deg_to_rad(look_max_yaw_deg)
+	var pitch_target := y * deg_to_rad(look_max_pitch_up_deg if y > 0.0 else look_max_pitch_down_deg)
+	var active := absf(x) > 0.0 or absf(y) > 0.0
+	var k := 1.0 - exp(-(look_follow_speed if active else look_return_speed) * delta)
+	_look_yaw = lerpf(_look_yaw, yaw_target, k)
+	_look_pitch = lerpf(_look_pitch, pitch_target, k)
+	if not active and absf(_look_yaw) < 0.0005 and absf(_look_pitch) < 0.0005:
+		_look_yaw = 0.0
+		_look_pitch = 0.0
+	view_alignment = clampf(cos(_look_yaw), 0.0, 1.0)
 
 
 func _place(speed_t: float) -> void:
 	var drop := height_drop_at_speed * speed_fx
 	var pivot := _focus + Vector3.UP * (look_height - drop * 0.3)
 	var back := distance + extra_distance_at_speed * speed_t + _lag + boost_pull_back * boost_fx
-	var desired := _focus - _yaw_dir * back + Vector3.UP * (height - drop)
+	# Orbit direction: the camera sits at `pivot - view_dir * back` and looks along `view_dir`.
+	var view_dir := _yaw_dir.rotated(Vector3.UP, -_look_yaw)
+	var rise := 0.0
+	if looking_back:
+		view_dir = -_yaw_dir
+		back = look_back_distance + extra_distance_at_speed * speed_t * 0.5
+	else:
+		rise = back * tan(_look_pitch)
+	var desired := _focus - view_dir * back + Vector3.UP * (height - drop + rise)
 	_ray.from = pivot
 	_ray.to = desired
 	_ray.exclude = [_target.get_rid()]
@@ -163,7 +219,7 @@ func _place(speed_t: float) -> void:
 	if not hit.is_empty():
 		desired = hit.position + (pivot - desired).normalized() * collision_margin + Vector3.UP * collision_margin
 	global_position = desired
-	var look_target := pivot + _yaw_dir * look_ahead * speed_t
+	var look_target := pivot + view_dir * look_ahead * speed_t
 	if not global_position.is_equal_approx(look_target):
 		look_at(look_target, Vector3.UP)
 

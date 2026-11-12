@@ -27,6 +27,8 @@ __NV_PRIME_RENDER_OFFLOAD=1 __VK_LAYER_NV_optimus=NVIDIA_only __GLX_VENDOR_LIBRA
 | Handbrake (drift) | Space | X / Square |
 | Boost (nitro) | Shift | A / Cross |
 | Reset car to road | R | Y / Triangle |
+| Look around (springs back on release) | — | Right stick (±90°) |
+| Look back (hold) | C | Right stick down |
 | Pause (Q quits while paused) | Esc | Start |
 
 ## Layout
@@ -38,7 +40,7 @@ __NV_PRIME_RENDER_OFFLOAD=1 __VK_LAYER_NV_optimus=NVIDIA_only __GLX_VENDOR_LIBRA
   downshift blips, rev limiter and overrun pops), tyre squeal/skid, wind, road rumble, off-road crunch, suspension
   thumps, impacts, gear and handbrake clicks. `car_sound_synth.gd` generates all the samples at startup.
 - `scripts/camera/` — `chase_camera.gd` (smoothed chase camera: speed-based FOV/pull-back/lowering, acceleration
-  lag and FOV kick, subtle noise shake) and `speed_effects.gd` (wind-streak particles + speed overlay above ~80 km/h).
+  lag and FOV kick, subtle noise shake, right-stick free look and rear view) and `speed_effects.gd` (wind-streak particles + speed overlay above ~80 km/h).
 - `scripts/world/` — `world_generator.gd` defines the road network and orchestrates `terrain_data.gd` (height
   field, every road carved in, computed on the WorkerThreadPool), `road_path.gd` (spline roads, open or looped,
   with a configurable cross-section: lanes, lane width, median) and the `*_builder.gd` mesh/collider builders
