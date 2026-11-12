@@ -11,6 +11,11 @@ uniform float lane_width = 4.05;
 uniform float median_width = 0.0;
 uniform float dash_length = 4.0;
 uniform float dash_gap = 5.0;
+// One-way road (ramp): a single centred lane, edge lines only.
+uniform bool one_way = false;
+// Up to 16 ranges along the road (from, to, side: +1 right / -1 left) where the edge line is dashed.
+uniform vec3 edge_dashes[16];
+uniform int edge_dash_count = 0;
 
 // Anti-aliased band of half-width `hw` around 0.
 float band(float x, float hw) {
@@ -29,8 +34,16 @@ void fragment() {
 	float lanes = float(lanes_per_side);
 	float edge_pos = half_median + lanes * lane_width;
 	float edge_line = band(side - edge_pos, 0.09);
+	for (int k = 0; k < edge_dash_count; k++) {
+		vec3 r = edge_dashes[k];
+		if (UV.y >= r.x && UV.y <= r.y && across * r.z > 0.0) {
+			edge_line = band(side - edge_pos, 0.15) * dash;  // Wider dashes, like a lane line.
+		}
+	}
 	float marking = edge_line;
-	if (median_width > 0.01) {
+	if (one_way) {
+		// Edge lines only.
+	} else if (median_width > 0.01) {
 		marking = max(marking, band(side - half_median, 0.09));
 		// Diagonal hatching inside the median.
 		float hatch = fract((UV.y + across * 2.0) / 6.0);
@@ -46,7 +59,7 @@ void fragment() {
 
 	// Slightly darker, polished tyre tracks in each lane.
 	float in_lane = clamp((side - half_median) / lane_width, 0.0, lanes);
-	float lane_pos = (fract(in_lane) - 0.5) * lane_width;
+	float lane_pos = one_way ? side : (fract(in_lane) - 0.5) * lane_width;
 	float tracks = band(abs(lane_pos) - 0.85, 0.35) * step(side, edge_pos) * step(half_median, side);
 
 	vec3 col = asphalt_color.rgb * (1.0 - 0.07 * tracks);

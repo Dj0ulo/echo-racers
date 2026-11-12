@@ -6,9 +6,13 @@ extends Node3D
 ## Road network (all coordinates in metres, x/z):
 ##  - "country": the original winding loop in the middle of the map.
 ##  - "highway": a wide 2x2-lane loop with a median, long straights and sweeping bends near the map edge.
-##  - "link_*": winding country roads joining the loop to the highway with at-grade T-junctions.
-##  - "mountain_road": leaves the highway's outer edge opposite link_north, crosses the outer countryside,
-##    climbs along the north-east mountain foothills and comes back down to the highway opposite link_east.
+##  - "link_*": winding country roads from the loop out to the highway, which they cross on a bridge at a
+##    diamond interchange, ending just past it where an outer road carries on.
+##  - "ramp_<link>_<off|on><1|2>": the four one-way slip roads of each interchange (side 1 = right of the
+##    highway's direction of increasing distance, side 2 = left).
+##  - "mountain_road": continues link_north through the outer countryside, along the north-east mountain
+##    foothills, and back to the interchange of link_east.
+##  - "west_road": continues link_southwest around the west of the map and joins the mountain road.
 
 ## Country loop control points (x, z). The spline passes through each of them.
 const ROAD_CONTROL_POINTS := [
@@ -23,28 +27,48 @@ const HIGHWAY_HALF_EXTENTS := Vector2(950.0, 905.0)
 const HIGHWAY_BEND_RADIUS := 520.0
 const HIGHWAY_STRAIGHT_SWAY := [40.0, -35.0, 35.0, -45.0]  ## Sideways sway (m) of each straight.
 
-## Link roads: attach near `from` on the country loop, wind through `via`, end near `to` on the highway.
+## Link roads: attach near `from` on the country loop, wind through `via` and cross the highway square-on
+## at the point nearest to `cross` (on a straight), on a bridge.
 const LINK_ROADS := [
 	{"name": &"link_north", "from": Vector2(110, -218),
-		"via": [Vector2(95, -330), Vector2(185, -450), Vector2(120, -590), Vector2(210, -720), Vector2(150, -820)],
-		"to": Vector2(150, -905)},
+		"via": [Vector2(95, -330), Vector2(185, -450), Vector2(120, -590), Vector2(175, -700)],
+		"cross": Vector2(150, -905)},
 	{"name": &"link_east", "from": Vector2(232, -60),
-		"via": [Vector2(350, -40), Vector2(470, 50), Vector2(600, -20), Vector2(730, 60), Vector2(850, 30)],
-		"to": Vector2(940, 30)},
+		"via": [Vector2(350, -40), Vector2(470, 50), Vector2(600, -20), Vector2(700, 40)],
+		"cross": Vector2(940, 30)},
 	{"name": &"link_southwest", "from": Vector2(-210, 152),
-		"via": [Vector2(-320, 250), Vector2(-360, 400), Vector2(-500, 470), Vector2(-560, 620), Vector2(-500, 780)],
-		"to": Vector2(-500, 900)},
+		"via": [Vector2(-320, 250), Vector2(-360, 400), Vector2(-470, 500), Vector2(-400, 640)],
+		"cross": Vector2(-330, 905)},
 ]
 
-## Roads outside the highway ring. Same format as LINK_ROADS, but both ends join the highway's outer edge.
+## Roads outside the highway ring: from the far end of link `from_link` through `via` to the far end of link
+## `to_link`, or to a T-junction on road `to_road` near `to`.
 const OUTER_ROADS := [
-	{"name": &"mountain_road", "from": Vector2(150, -905),
-		"via": [Vector2(165, -1060), Vector2(110, -1230), Vector2(260, -1420), Vector2(540, -1560),
+	{"name": &"mountain_road", "from_link": &"link_north",
+		"via": [Vector2(110, -1230), Vector2(260, -1420), Vector2(540, -1560),
 			Vector2(850, -1700), Vector2(1150, -1760), Vector2(1450, -1660), Vector2(1700, -1430),
 			Vector2(1820, -1110), Vector2(1760, -800), Vector2(1560, -600), Vector2(1350, -430),
-			Vector2(1220, -220), Vector2(1110, -60), Vector2(1060, 30)],
-		"to": Vector2(940, 30)},
+			Vector2(1220, -220), Vector2(1130, -40)],
+		"to_link": &"link_east"},
+	{"name": &"west_road", "from_link": &"link_southwest",
+		"via": [Vector2(-390, 1170), Vector2(-700, 1300), Vector2(-1050, 1230), Vector2(-1330, 980),
+			Vector2(-1450, 600), Vector2(-1400, 200), Vector2(-1470, -200), Vector2(-1400, -620),
+			Vector2(-1180, -1000), Vector2(-880, -1220), Vector2(-540, -1330), Vector2(-220, -1320)],
+		"to_road": &"mountain_road", "to": Vector2(110, -1230)},
 ]
+
+## Diamond interchange geometry (metres).
+const BRIDGE_CLEARANCE := 6.8     ## Link road surface above the highway at the crossing.
+const CROSS_STRAIGHT_IN := 90.0   ## The link is straight and square to the highway from here (inside)...
+const CROSS_STRAIGHT_OUT := 80.0  ## ...to its end on the outside, where the outer road takes over.
+const CROSS_FLAT := 85.0          ## The link is level (at deck height) within this distance of the crossing...
+const CROSS_BLEND := 170.0        ## ...and blends back to the terrain-following profile over this distance.
+const BRIDGE_HALF := 20.0         ## Half length of the bridge span (abutment faces), from the crossing.
+const RAMP_LENGTH := 360.0        ## Along the highway, from the ramp's merge/diverge point to the link road.
+const RAMP_TERMINAL := 60.0       ## Distance of the ramp terminals from the highway centreline.
+const RAMP_START_OFFSET := 7.5    ## Lateral offset of a ramp's centreline where it leaves the highway.
+const RAMP_HALF_WIDTH := 3.6
+const RAMP_LANE_HALF := 2.0       ## Edge lines at +-this from a ramp's centreline.
 
 @export var world_seed := 1337
 @export var road_half_width := 4.5
@@ -57,7 +81,11 @@ var terrain: TerrainData
 var road: RoadPath            ## The country loop (spawn road, used by the autodrive).
 var highway: RoadPath
 var roads: Array[RoadPath] = []
-var junctions: Array[Vector3] = []  ## Where link roads meet another road's edge: (x, z, clearance radius).
+var junctions: Array[Vector3] = []  ## Where roads end on another road's edge: (x, z, clearance radius).
+## One entry per interchange: {"link": RoadPath, "center": Vector3 (crossing on the highway centreline),
+## "along": Vector3 (highway tangent), "across": Vector3 (highway right), "deck": float (link height there),
+## "ramps": Array[RoadPath]}.
+var interchanges: Array[Dictionary] = []
 var _rotors: Array[Node3D] = []
 
 
@@ -70,6 +98,7 @@ func generate() -> void:
 	terrain = TerrainData.new(world_seed)
 	roads.clear()
 	junctions.clear()
+	interchanges.clear()
 
 	road = _make_country_road(&"country")
 	road.build(PackedVector2Array(ROAD_CONTROL_POINTS), terrain.natural_height)
@@ -90,10 +119,16 @@ func generate() -> void:
 	highway.build(_highway_control_points(), terrain.natural_height, 70, 3)
 	roads.append(highway)
 
+	var links := {}
 	for def: Dictionary in LINK_ROADS:
-		roads.append(_build_link(def, road, highway))
+		var link := _build_link(def)
+		links[link.name] = link
+		roads.append(link)
 	for def: Dictionary in OUTER_ROADS:
-		roads.append(_build_link(def, highway, highway, 90, 40.0))
+		roads.append(_build_outer_road(def, links))
+	for ix in interchanges:
+		for ramp: RoadPath in ix.ramps:
+			roads.append(ramp)
 
 	var t_roads := Time.get_ticks_msec()
 	terrain.build(roads)
@@ -107,8 +142,16 @@ func generate() -> void:
 	var t_mesh := Time.get_ticks_msec()
 	for r in roads:
 		RoadBuilder.build(self, r)
+	InterchangeBuilder.build(self, terrain, highway, interchanges)
 	var clear_zones: Array[Vector3] = []
-	_rotors = PropsBuilder.build(self, terrain, roads, junctions, clear_zones, world_seed)
+	# The terrain's road mask has a hole under each bridge deck: keep rocks and trees off the span and the
+	# abutment embankments.
+	for ix in interchanges:
+		var link: RoadPath = ix.link
+		for k in 11:
+			var p: Vector3 = link.sample_at(ix.d_cross + (k - 5) * 10.0)[0]
+			clear_zones.append(Vector3(p.x, p.z, 13.0))
+	_rotors = PropsBuilder.build(self, terrain, roads, clear_zones, world_seed)
 	var t_props := Time.get_ticks_msec()
 	VegetationBuilder.build(self, terrain, clear_zones, world_seed)
 	var t_end := Time.get_ticks_msec()
@@ -116,7 +159,7 @@ func generate() -> void:
 		t_end - start, t_roads - start, t_terrain - t_roads, t_mesh - t_terrain, t_props - t_mesh, t_end - t_props])
 	for r in roads:
 		var st := r.stats()
-		print("  road %-15s %5.0f m, min radius %4.0f m, max grade %.1f %%" % [r.name, r.length, st.x, st.y])
+		print("  road %-22s %5.0f m, min radius %4.0f m, max grade %.1f %%" % [r.name, r.length, st.x, st.y])
 
 
 ## Samples the highway outline every ~60 m; the spline through these points reproduces it closely.
@@ -155,29 +198,161 @@ func _make_country_road(road_name: StringName) -> RoadPath:
 	return r
 
 
-## Open country road from the edge of `from_road` to the edge of `to_road`, leaving and arriving square-on,
-## with its end heights pinned to the roads it joins.
-func _build_link(def: Dictionary, from_road: RoadPath, to_road: RoadPath, smoothing := 30,
-		reach := 22.0) -> RoadPath:
+## Link road from the edge of the country loop to just past the highway, which it crosses square-on on a
+## bridge (level at deck height around the crossing). Also builds the interchange's ramps.
+func _build_link(def: Dictionary) -> RoadPath:
 	var via: Array = def.via
-	var a := _junction_point(from_road, def.from, via[0])
-	var b := _junction_point(to_road, def.to, via[via.size() - 1])
+	var a := _junction_point(road, def.from, via[0])
+	# Crossing frame: centre on the highway, highway tangent / right, and the side the link comes from.
+	var ci := highway.nearest_index(Vector3(def.cross.x, 0.0, def.cross.y))
+	var c := highway.points[ci]
+	var along := highway.tangents[ci]
+	var across := highway.right_at(ci)
+	var c2 := Vector2(c.x, c.z)
+	var inward := Vector2(across.x, across.z)
+	if inward.dot(via[via.size() - 1] - c2) < 0.0:
+		inward = -inward
 	var controls := PackedVector2Array([a[0], a[0] + a[1] * 14.0])
 	for v: Vector2 in via:
 		controls.append(v)
-	controls.append(b[0] + b[1] * 14.0)
-	controls.append(b[0])
+	for l: float in [CROSS_STRAIGHT_IN + 40.0, CROSS_STRAIGHT_IN, CROSS_STRAIGHT_IN * 0.5, 0.0,
+			-CROSS_STRAIGHT_OUT * 0.5, -CROSS_STRAIGHT_OUT]:
+		controls.append(c2 + inward * l)
 	var link := _make_country_road(def.name)
 	link.closed = false
-	link.terrain_reach = reach
-	link.build(controls, terrain.natural_height, smoothing, 3, {"start": a[2], "end": b[2]})
-	# The ends tuck just under the road they join so the two surfaces don't z-fight.
-	var last := link.sample_count() - 1
-	link.points[0].y -= 0.04
-	link.points[last].y -= 0.04
-	for p in [a, b]:
-		junctions.append(Vector3(p[0].x, p[0].y, link.half_width + 4.0))
+	link.build(controls, terrain.natural_height, 30, 3, {"start": a[2]})
+	# Level at deck height around the crossing, blending into the terrain-following profile.
+	var deck := c.y + BRIDGE_CLEARANCE
+	var d_cross := link.length - CROSS_STRAIGHT_OUT
+	link.flatten(d_cross, CROSS_FLAT, CROSS_BLEND, deck)
+	link.bridges.append(Vector2(d_cross - BRIDGE_HALF, d_cross + BRIDGE_HALF))
+	link.points[0].y -= 0.04  # Tucks under the loop so the two surfaces don't z-fight.
+	junctions.append(Vector3(a[0].x, a[0].y, link.half_width + 4.0))
+
+	var ix := {"link": link, "center": c, "along": along, "across": across, "deck": deck,
+		"inward": Vector3(inward.x, 0.0, inward.y), "d_cross": d_cross, "ramps": [] as Array[RoadPath]}
+	for side: float in [1.0, -1.0]:
+		var tag := "1" if side > 0.0 else "2"
+		ix.ramps.append(_build_ramp(StringName("ramp_%s_off%s" % [String(def.name).trim_prefix("link_"), tag]),
+				ci, side, false, deck))
+		ix.ramps.append(_build_ramp(StringName("ramp_%s_on%s" % [String(def.name).trim_prefix("link_"), tag]),
+				ci, side, true, deck))
+	interchanges.append(ix)
 	return link
+
+
+## One-way slip road of a diamond interchange on side `side` (+1 = right of the highway tangent at sample
+## `ci`, whose traffic drives along increasing distance; -1 = left). In ramp coordinates (a = along the
+## direction of travel from the crossing, l = outwards from the centreline), an off-ramp leaves the highway
+## at a = -RAMP_LENGTH, l = RAMP_START_OFFSET (hidden under the outer lane), tapers out and swings in a
+## gentle S up to the link road, which it meets square-on at l = RAMP_TERMINAL. An on-ramp is its mirror
+## image (a -> -a) driven the other way.
+func _build_ramp(ramp_name: StringName, ci: int, side: float, on_ramp: bool, deck: float) -> RoadPath:
+	var s_c := highway.distances[ci]
+	var c := highway.points[ci]
+	var along := highway.tangents[ci]
+	var across := highway.right_at(ci)
+	var edge := road_half_width - 0.6  # Where the ramp ends, from the link's centreline.
+	var span := RAMP_LENGTH - 24.0
+	var pts: Array[Vector2] = []
+	# S-curve, following the highway's own frame (it may bend a little over the ramp's length).
+	var steps := int(span / 20.0)
+	for k in steps + 1:
+		var a := -RAMP_LENGTH + span * k / steps
+		var l := RAMP_START_OFFSET + (RAMP_TERMINAL - RAMP_START_OFFSET) * smoothstep(0.0, 1.0, (a + RAMP_LENGTH) / span)
+		var h: Array = highway.sample_at(s_c + side * (-a if on_ramp else a))
+		var p: Vector3 = h[0]
+		var t: Vector3 = h[1]
+		var q := p + Vector3(-t.z, 0.0, t.x) * side * l
+		pts.append(Vector2(q.x, q.z))
+	# Last metres straight and square to the (straight) link road, in the crossing frame.
+	for a: float in [-(edge + 14.0), -edge]:
+		var q := c + (along * (-a if on_ramp else a) + across * RAMP_TERMINAL) * side
+		pts.append(Vector2(q.x, q.z))
+	if on_ramp:
+		pts.reverse()
+	var ramp := RoadPath.new()
+	ramp.name = ramp_name
+	ramp.closed = false
+	ramp.one_way = true
+	ramp.half_width = RAMP_HALF_WIDTH
+	ramp.lane_width = RAMP_LANE_HALF
+	ramp.terrain_reach = 30.0
+	ramp.build(PackedVector2Array(pts), terrain.natural_height, 10, 1)
+	# Heights: just under the highway surface while alongside it, then a smooth climb to the deck.
+	var n := ramp.sample_count()
+	var taper := 75.0
+	for i in n:
+		var d := ramp.distances[i] if not on_ramp else ramp.length - ramp.distances[i]
+		var a := -RAMP_LENGTH + d
+		var base: float = (highway.sample_at(s_c + side * (-a if on_ramp else a))[0] as Vector3).y - 0.03
+		ramp.points[i].y = lerpf(base, deck - 0.04, smoothstep(taper, ramp.length - 12.0, d))
+	# Dashed highway edge line where the ramp leaves / joins it.
+	var dash_from := s_c + side * (RAMP_LENGTH if on_ramp else -RAMP_LENGTH)
+	var dash_to := s_c + side * ((RAMP_LENGTH - taper - 10.0) if on_ramp else (-RAMP_LENGTH + taper + 10.0))
+	_add_edge_dash(highway, minf(dash_from, dash_to), maxf(dash_from, dash_to), side)
+	var end := ramp.points[n - 1] if not on_ramp else ramp.points[0]
+	junctions.append(Vector3(end.x, end.z, ramp.half_width + 3.0))
+	return ramp
+
+
+static func _add_edge_dash(r: RoadPath, from: float, to: float, side: float) -> void:
+	from = fposmod(from, r.length)
+	to = fposmod(to, r.length)
+	if to >= from:
+		r.edge_dashes.append(Vector3(from, to, side))
+	else:  # Wraps around the loop's start.
+		r.edge_dashes.append(Vector3(from, r.length, side))
+		r.edge_dashes.append(Vector3(0.0, to, side))
+
+
+## Outer road from the far end of a link road (continuing it seamlessly, level at deck height at first) to
+## the far end of another link or a T-junction on another road.
+func _build_outer_road(def: Dictionary, links: Dictionary) -> RoadPath:
+	var from_link: RoadPath = links[def.from_link]
+	var from_ix := _interchange_of(from_link)
+	var p0 := from_link.points[from_link.sample_count() - 1]
+	var out0: Vector3 = -from_ix.inward
+	var controls := PackedVector2Array([Vector2(p0.x, p0.z), Vector2(p0.x + out0.x * 30.0, p0.z + out0.z * 30.0)])
+	for v: Vector2 in def.via:
+		controls.append(v)
+	var outer := _make_country_road(def.name)
+	outer.closed = false
+	outer.terrain_reach = 40.0
+	var to_ix := {}
+	var t_end := []
+	if def.has("to_link"):
+		var to_link: RoadPath = links[def.to_link]
+		to_ix = _interchange_of(to_link)
+		var p1 := to_link.points[to_link.sample_count() - 1]
+		var out1: Vector3 = -to_ix.inward
+		controls.append(Vector2(p1.x + out1.x * 30.0, p1.z + out1.z * 30.0))
+		controls.append(Vector2(p1.x, p1.z))
+	else:
+		var target: RoadPath = null
+		for r in roads:
+			if r.name == def.to_road:
+				target = r
+		t_end = _junction_point(target, def.to, def.via[def.via.size() - 1])
+		controls.append(t_end[0] + t_end[1] * 14.0)
+		controls.append(t_end[0])
+	var pins := {"end": t_end[2]} if not t_end.is_empty() else {}
+	outer.build(controls, terrain.natural_height, 90, 3, pins)
+	outer.flatten(-CROSS_STRAIGHT_OUT, CROSS_FLAT, CROSS_BLEND, from_ix.deck)
+	if not to_ix.is_empty():
+		outer.flatten(outer.length + CROSS_STRAIGHT_OUT, CROSS_FLAT, CROSS_BLEND, to_ix.deck)
+	else:
+		var last := outer.sample_count() - 1
+		outer.points[last].y -= 0.04
+		junctions.append(Vector3(t_end[0].x, t_end[0].y, outer.half_width + 4.0))
+	return outer
+
+
+func _interchange_of(link: RoadPath) -> Dictionary:
+	for ix in interchanges:
+		if ix.link == link:
+			return ix
+	return {}
 
 
 ## Returns [edge point (Vector2), outward direction (Vector2), road height] on `target`
@@ -211,6 +386,8 @@ func get_reset_transform(pos: Vector3, forward := Vector3.ZERO) -> Transform3D:
 	for r in roads:
 		var i := r.nearest_index(pos)
 		var d := Vector2(r.points[i].x - pos.x, r.points[i].z - pos.z).length() - r.half_width
+		# Prefer the road at the car's level (the highway under a bridge, not the bridge itself).
+		d += maxf(absf(r.points[i].y - pos.y) - 2.0, 0.0) * 4.0
 		if d < best_d:
 			best_d = d
 			best = r

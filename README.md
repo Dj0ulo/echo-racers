@@ -49,12 +49,17 @@ __NV_PRIME_RENDER_OFFLOAD=1 __VK_LAYER_NV_optimus=NVIDIA_only __GLX_VENDOR_LIBRA
   colliders go through `collider_batch.gd` straight to the PhysicsServer). `palette.gd` holds the shared colours.
 - World layout (~4.6 km across, ±2304 m): the original winding country loop sits in the middle; a 6.5 km 2×2-lane
   highway with a concrete median barrier, guard rails, 1 km straights and ~520 m radius bends loops around it
-  (±950 m); three winding country link roads join the loop to the highway through at-grade T-junctions (gaps in
-  the rails and median there). Past the highway a ~650 m band of rolling countryside leads to ridged, rocky,
-  snow-capped mountains (from ~1600 m out) that form the map's natural boundary (invisible walls at the very
-  edge), with even higher ranges beyond as backdrop. The `mountain_road` (4 km) leaves the highway opposite
-  `link_north`, crosses the outer countryside and winds along the north-east foothills back to the highway
-  opposite `link_east`. Terrain chunks away from roads outside the highway are generated and meshed at 1/2 or
+  (±950 m) with an unbroken median barrier. Three winding country link roads (`link_north`, `link_east`,
+  `link_southwest`) leave the loop at T-junctions and cross the highway square-on on bridges (deck, parapets,
+  median pier, abutments with wing walls; `interchange_builder.gd`), each a diamond interchange with four
+  one-way slip roads (`ramp_<link>_off1/on1` for traffic along the highway's direction, `off2/on2` for the other
+  carriageway): ~360 m long, tapering off/onto the outer lane behind a dashed edge line, then climbing gently to
+  the link road, which they meet at right angles 60 m from the highway. Past the highway a ~650 m band of rolling
+  countryside leads to ridged, rocky, snow-capped mountains (from ~1600 m out) that form the map's natural
+  boundary (invisible walls at the very edge), with even higher ranges beyond as backdrop. The links carry on
+  outside the ring: `mountain_road` (4 km) continues `link_north` across the outer countryside and winds along
+  the north-east foothills to the end of `link_east`; `west_road` (4.7 km) continues `link_southwest` around the
+  west of the map to a T-junction on `mountain_road`. Terrain chunks away from roads outside the highway are generated and meshed at 1/2 or
   1/4 resolution (exactly matching the collider), and forests thin out there and stop at the tree line.
 - `scripts/traffic/` — `traffic_manager.gd` (node `Traffic` in `main.tscn`) drives ~36 AI cars on the country loop
   and the highway, both directions, with the Intelligent Driver Model (keeps a time gap, slows for bends, brakes
@@ -82,4 +87,5 @@ another road of the network instead of the country loop (on the highway, in the 
 hatch and a truck, an off-centre T-bone, being T-boned by a van, a side swipe) and prints pre/post velocities, yaw
 rates and the hit car's recovery; every player crash is also logged in the other autodrive modes.
 `--view=x,y,z,tx,ty,tz` (repeatable, with `--shots`) first saves fog-free stills from a free camera at `x,y,z`
-looking at `tx,ty,tz`; `--view=overview` shows the whole map.
+looking at `tx,ty,tz`; `--view=overview` shows the whole map. `--route=highway,ramp_north_off1,link_north,ramp_north_on2,highway`
+drives through several roads in turn (here: exit the highway, cross the bridge, rejoin the other carriageway).

@@ -7,6 +7,7 @@ extends RefCounted
 ## Cross-section (symmetric about the centreline):
 ##   | shoulder | lane x lanes_per_side | median | lane x lanes_per_side | shoulder |
 ## A country road is 1 lane per side, no median; the highway is 2 lanes per side with a median.
+## A one-way road (interchange ramp) has a single lane centred on the road, driven along increasing distance.
 
 const SAMPLE_SPACING := 2.0
 
@@ -21,6 +22,12 @@ var dash_length := 4.0
 var dash_gap := 5.0
 var terrain_blend := 14.0   ## Minimum distance over which the terrain blends back to its natural height.
 var terrain_reach := 22.0   ## Max distance past the road edge the terrain may be reshaped (embankments, cuttings).
+var one_way := false
+## Distance ranges (x = from, y = to) carried by a bridge: the terrain is not shaped to the road there.
+var bridges := PackedVector2Array()
+## Distance ranges (x = from, y = to, z = side: +1 right, -1 left) where the outer edge line is dashed
+## (where a ramp diverges from or merges into this road).
+var edge_dashes := PackedVector3Array()
 
 var points := PackedVector3Array()    ## Centreline samples (with height).
 var tangents := PackedVector3Array()  ## Horizontal unit tangents.
@@ -50,11 +57,30 @@ func build(control_points: PackedVector2Array, height_func: Callable, smoothing_
 ## offset run along increasing distance; negative ones run the other way (right-hand traffic).
 func lane_offsets() -> PackedFloat32Array:
 	var out := PackedFloat32Array()
+	if one_way:
+		out.append(0.0)
+		return out
 	for k in lanes_per_side:
 		var offset := median_width * 0.5 + (k + 0.5) * lane_width
 		out.append(offset)
 		out.append(-offset)
 	return out
+
+
+func is_bridge(i: int) -> bool:
+	var d := distances[wrap_index(i)]
+	for r in bridges:
+		if d >= r.x and d <= r.y:
+			return true
+	return false
+
+
+## Blends the road heights to `height` over [center - half_flat, center + half_flat], fading back to the
+## current profile over `blend` metres on either side (used for bridge approaches).
+func flatten(center: float, half_flat: float, blend: float, height: float) -> void:
+	for i in points.size():
+		var w := 1.0 - smoothstep(half_flat, half_flat + blend, absf(distances[i] - center))
+		points[i].y = lerpf(points[i].y, height, w)
 
 
 ## Unit vector pointing to the right of the driving direction at sample `i`.
@@ -117,7 +143,10 @@ func _sample_spline(control: PackedVector2Array, steps: int) -> PackedVector2Arr
 			p0 = control[i - 1] if i > 0 else p1 * 2.0 - p2
 			p3 = control[i + 2] if i + 2 < n else p2 * 2.0 - p1
 		for s in steps:
-			out.append(_catmull_rom(p0, p1, p2, p3, float(s) / steps))
+			var t := float(s) / steps
+			# Open roads (links, ramps, outer roads) mix very short and long control segments, where the uniform
+			# spline overshoots and loops; the centripetal form doesn't.
+			out.append(_catmull_rom(p0, p1, p2, p3, t) if closed else _catmull_rom_centripetal(p0, p1, p2, p3, t))
 	if not closed:
 		out.append(control[n - 1])
 	return out
@@ -228,6 +257,19 @@ func stats() -> Vector2:
 			var j := wrap_index(i + 1)
 			max_grade = maxf(max_grade, absf(points[j].y - points[i].y) / step * 100.0)
 	return Vector2(min_radius, max_grade)
+
+
+static func _catmull_rom_centripetal(p0: Vector2, p1: Vector2, p2: Vector2, p3: Vector2, u: float) -> Vector2:
+	var t1 := sqrt(maxf(p0.distance_to(p1), 1e-3))
+	var t2 := t1 + sqrt(maxf(p1.distance_to(p2), 1e-3))
+	var t3 := t2 + sqrt(maxf(p2.distance_to(p3), 1e-3))
+	var t := lerpf(t1, t2, u)
+	var a1 := p0.lerp(p1, t / t1)
+	var a2 := p1.lerp(p2, (t - t1) / (t2 - t1))
+	var a3 := p2.lerp(p3, (t - t2) / (t3 - t2))
+	var b1 := a1.lerp(a2, t / t2)
+	var b2 := a2.lerp(a3, (t - t1) / (t3 - t1))
+	return b1.lerp(b2, (t - t1) / (t2 - t1))
 
 
 static func _catmull_rom(p0: Vector2, p1: Vector2, p2: Vector2, p3: Vector2, t: float) -> Vector2:

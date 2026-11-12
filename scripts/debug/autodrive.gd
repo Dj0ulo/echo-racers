@@ -2,6 +2,10 @@ extends Node
 ## Debug helper, enabled with `godot -- --autodrive [--shots=/abs/dir] [--road=highway] [--traffic]`.
 ## `--road=<name>` drives another road of the network (in its inner right-hand lane on multi-lane roads);
 ## traffic stays off unless `--traffic` is given.
+## `--route=a,b,c,...` drives through several roads in turn (e.g. `highway,ramp_north_off1,link_north,
+## ramp_north_on2,highway` exits the highway, crosses the bridge and joins the other carriageway), switching
+## where each road meets the next (a loop is driven in the direction of the ramp it leads to or comes from;
+## otherwise prefix the first road with `-` to drive it backwards). No drift events.
 ## `--view=x,y,z,tx,ty,tz` (repeatable, needs --shots) also saves a still from a free camera at (x, y, z)
 ## looking at (tx, ty, tz) before the drive starts (view_<k>.png); `--view=overview` is a whole-map view.
 ## A simple pure-pursuit autopilot drives along the road (with handbrake drift scenarios and a
@@ -56,6 +60,7 @@ var _max_target_kmh := 170.0
 var _views: Array[PackedFloat32Array] = []
 var _view_cam: Camera3D
 var _view_frame := 0
+var _route := false
 
 ## Crash test scenarios (highway, carriageway with increasing distance). Distances are relative to the
 ## player's start; "lat" shifts the traffic car sideways off its lane centre; "yaw" is relative to the lane.
@@ -103,16 +108,89 @@ func _ready() -> void:
 			for r in _world.roads:
 				if String(r.name) == road_name:
 					_road = r
+		elif arg.begins_with("--route="):
+			_road = _build_route(arg.trim_prefix("--route=").split(","))
+			_route = true
 	if "--crashtest" in OS.get_cmdline_user_args():
 		_setup_crash_test()
 		return
-	if _road != _world.road:
+	if _road != _world.road and not _route:
 		if _road.median_width > 0.0:
 			_lane_offset = _road.lane_offsets()[0]
 			_max_target_kmh = 260.0
+	if _road != _world.road:
 		_car.reset_to(_road.transform_at(0, 0.9, _lane_offset))
 		get_parent().get_node("ChaseCamera").snap()
 		print("Autodrive on road '%s' (%.0f m), lane offset %.2f m" % [_road.name, _road.length, _lane_offset])
+
+
+## Concatenates the right-hand lanes of the named roads into one open path. Each road is entered where the
+## previous one ends (nearest sample) and left at the sample nearest to the next road's start; open roads
+## run towards their exit, loops keep the heading they were entered with. Starts 300 m before the first exit.
+func _build_route(names: PackedStringArray) -> RoadPath:
+	var parts: Array[RoadPath] = []
+	var first_reversed := names[0].begins_with("-")
+	for road_name in names:
+		var found: RoadPath = null
+		for r in _world.roads:
+			if String(r.name) == road_name.trim_prefix("-"):
+				found = r
+		assert(found != null, "unknown road " + road_name)
+		parts.append(found)
+	var route := RoadPath.new()
+	route.name = StringName("route")
+	route.closed = false
+	var pts := PackedVector3Array()
+	var heading := Vector3.ZERO
+	for k in parts.size():
+		var r := parts[k]
+		var n := r.sample_count()
+		var entry := -1 if pts.is_empty() else r.nearest_index(pts[pts.size() - 1])
+		var exit := -1
+		if r.one_way:
+			exit = n - 1
+		elif k + 1 < parts.size():
+			var nxt := parts[k + 1]
+			exit = r.nearest_index(nxt.points[0] if nxt.one_way or nxt.closed else nxt.points[nxt.nearest_index(
+					r.points[entry if entry >= 0 else 0])])
+		var dir := 1
+		if r.closed:
+			if entry < 0:
+				dir = -1 if first_reversed else 1
+				if k + 1 < parts.size() and parts[k + 1].one_way:  # Drive the carriageway the ramp leaves.
+					dir = 1 if r.tangents[exit].dot(parts[k + 1].tangents[0]) >= 0.0 else -1
+				entry = r.wrap_index(exit - dir * 150)
+			else:
+				dir = 1 if r.tangents[entry].dot(heading) >= 0.0 else -1
+			if exit < 0:
+				exit = r.wrap_index(entry + dir * 600)
+		else:
+			if entry < 0:
+				entry = 0
+			if exit < 0:
+				exit = n - 1 if r.one_way or r.tangents[entry].dot(heading) >= 0.0 else 0
+			dir = 1 if exit >= entry else -1
+		var offset := 0.0
+		if not r.one_way:
+			var lanes := r.lane_offsets()
+			offset = lanes[lanes.size() - 2]  # Outermost lane running along the road.
+		var i := entry
+		while true:
+			pts.append(r.points[i] + r.right_at(i) * offset * dir)
+			if i == exit:
+				break
+			i = r.wrap_index(i + dir)
+		heading = r.tangents[exit] * dir
+	route.points = pts
+	route.distances.resize(pts.size())
+	for j in pts.size():
+		route.distances[j] = 0.0 if j == 0 else route.distances[j - 1] + pts[j].distance_to(pts[j - 1])
+	route.length = route.distances[pts.size() - 1]
+	route.step = route.length / maxf(pts.size() - 1, 1)
+	route._compute_tangents()
+	_max_target_kmh = 130.0
+	print("Route %s: %.0f m" % [",".join(names), route.length])
+	return route
 
 
 func _physics_process(delta: float) -> void:
@@ -135,11 +213,19 @@ func _physics_process(delta: float) -> void:
 	var t1 := road.tangents[road.wrap_index(idx + 30)]
 	var bend := t0.angle_to(t1)
 	var target_speed := lerpf(_max_target_kmh, 70.0, clampf(bend / 1.2, 0.0, 1.0)) / 3.6
+	if _route:  # Right-angle turns at the ramp terminals: brake in time for the local curvature ahead.
+		target_speed = _max_target_kmh / 3.6
+		for ahead in range(0, 100, 4):
+			var j := road.wrap_index(idx + ahead)
+			var turn := road.tangents[road.wrap_index(j - 4)].angle_to(road.tangents[road.wrap_index(j + 4)])
+			var radius := 8.0 * road.step / maxf(turn, 1e-3)
+			var v_turn := sqrt(4.0 * radius)  # ~0.4 g of cornering.
+			target_speed = minf(target_speed, sqrt(v_turn * v_turn + 2.0 * 5.0 * ahead * road.step))
 
 	var throttle := 1.0 if speed < target_speed else 0.0
 	var brake := 0.0 if speed < target_speed + 3.0 else 1.0
 	var handbrake := false
-	for i in DRIFT_EVENTS.size():
+	for i in (0 if _route else DRIFT_EVENTS.size()):
 		var e: Dictionary = DRIFT_EVENTS[i]
 		var rel: float = _time - e.t
 		if e.has("reset_kmh") and rel > -1.5 and not _resets_done.has(i):

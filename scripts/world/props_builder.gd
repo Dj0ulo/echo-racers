@@ -8,8 +8,7 @@ const RAIL_SPACING := 3      ## Highway guard rail / barrier section length, in 
 
 
 ## Appends the areas it occupies to `clear_zones`. Returns the turbine rotors so they can be animated.
-static func build(parent: Node3D, terrain: TerrainData, roads: Array[RoadPath], junctions: Array[Vector3],
-		clear_zones: Array[Vector3], world_seed: int) -> Array[Node3D]:
+static func build(parent: Node3D, terrain: TerrainData, roads: Array[RoadPath], clear_zones: Array[Vector3], world_seed: int) -> Array[Node3D]:
 	var root := Node3D.new()
 	root.name = "Props"
 	parent.add_child(root)
@@ -29,12 +28,17 @@ static func build(parent: Node3D, terrain: TerrainData, roads: Array[RoadPath], 
 	var fences: Array[Transform3D] = []
 	var rail_xforms: Array[Transform3D] = []
 	var barrier_xforms: Array[Transform3D] = []
+	var ramps: Array[RoadPath] = []
+	for road in roads:
+		if road.one_way:
+			ramps.append(road)
 	for road in roads:
 		if road.is_highway:
-			_build_guard_rails(terrain, road, junctions, rail_xforms, barrier_xforms, rail_colliders)
+			_build_guard_rails(terrain, road, ramps, rail_xforms, barrier_xforms, rail_colliders)
 		else:
 			_build_marker_posts(terrain, road, markers)
-			_build_fences(body, terrain, road, rng, fences)
+			if not road.one_way:
+				_build_fences(body, terrain, road, rng, fences)
 	_add_multimesh(root, SceneryMeshes.marker_post(), markers, true)
 	_add_multimesh(root, SceneryMeshes.fence_section(), fences, true)
 	_add_multimesh(root, SceneryMeshes.guard_rail_section(), rail_xforms, true)
@@ -49,6 +53,8 @@ static func build(parent: Node3D, terrain: TerrainData, roads: Array[RoadPath], 
 
 static func _build_marker_posts(terrain: TerrainData, road: RoadPath, xforms: Array[Transform3D]) -> void:
 	for i in range(0, road.sample_count(), MARKER_SPACING):
+		if road.is_bridge(i):
+			continue
 		for side: float in [-1.0, 1.0]:
 			var p := road.points[i] + road.right_at(i) * side * (road.half_width + 1.1)
 			# Skip posts that would land on (or right next to) another road.
@@ -58,23 +64,24 @@ static func _build_marker_posts(terrain: TerrainData, road: RoadPath, xforms: Ar
 			xforms.append(Transform3D(basis, Vector3(p.x, terrain.get_height(p.x, p.z) - 0.05, p.z)))
 
 
-## Guard rails along both outer edges and a concrete barrier on the median, with gaps at junctions.
-static func _build_guard_rails(terrain: TerrainData, road: RoadPath, junctions: Array[Vector3],
+## Guard rails along both outer edges (with gaps where interchange ramps leave or join the highway) and a
+## continuous concrete barrier on the median.
+static func _build_guard_rails(terrain: TerrainData, road: RoadPath, ramps: Array[RoadPath],
 		rail_xforms: Array[Transform3D], barrier_xforms: Array[Transform3D], colliders: ColliderBatch) -> void:
 	var n := road.sample_count()
 	for s in range(0, n, RAIL_SPACING):
 		var e := (s + RAIL_SPACING) % n
 		var a := road.points[s]
 		var b := road.points[e]
-		var median_gap := _near_junction(a, junctions, 26.0) or _near_junction(b, junctions, 26.0)
 		for side: float in [-1.0, 1.0]:
 			var offset := road.half_width + 0.5
 			var pa := a + road.right_at(s) * side * offset
 			var pb := b + road.right_at(e) * side * offset
-			if _near_junction(pa, junctions, 0.0) or _near_junction(pb, junctions, 0.0):
+			if _near_ramp(pa, ramps, 1.5) or _near_ramp(pb, ramps, 1.5):
 				continue
-			pa.y = maxf(terrain.get_height(pa.x, pa.z), a.y - 0.2)
-			pb.y = maxf(terrain.get_height(pb.x, pb.z), b.y - 0.2)
+			# Follow the verge, but never climb an embankment (e.g. against a bridge abutment).
+			pa.y = clampf(terrain.get_height(pa.x, pa.z), a.y - 0.2, a.y + 0.4)
+			pb.y = clampf(terrain.get_height(pb.x, pb.z), b.y - 0.2, b.y + 0.4)
 			var span := pb - pa
 			var basis := Basis.looking_at(span, Vector3.UP)
 			# The beam is modelled on the section's left (-X): run left-hand rails backwards so it faces the road.
@@ -83,19 +90,25 @@ static func _build_guard_rails(terrain: TerrainData, road: RoadPath, junctions: 
 				rail = Transform3D(Basis.looking_at(-span, Vector3.UP).scaled_local(Vector3(1.0, 1.0, span.length())), pb)
 			rail_xforms.append(rail)
 			colliders.add_box((pa + pb) * 0.5 + Vector3.UP * 0.55, basis, Vector3(0.25, 1.1, span.length() + 0.05))
-		if median_gap:
-			continue
 		var m_span := b - a
 		var m_basis := Basis.looking_at(m_span, Vector3.UP)
 		barrier_xforms.append(Transform3D(m_basis.scaled_local(Vector3(1.0, 1.0, m_span.length())), a + Vector3.DOWN * 0.02))
 		colliders.add_box((a + b) * 0.5 + Vector3.UP * 0.42, m_basis, Vector3(0.5, 0.85, m_span.length() + 0.05))
 
 
-static func _near_junction(p: Vector3, junctions: Array[Vector3], extra: float) -> bool:
-	for j in junctions:
-		var r := j.z + extra
-		if Vector2(p.x - j.x, p.z - j.y).length_squared() < r * r:
-			return true
+## True if `p` is within `margin` of a ramp's asphalt (horizontally, and not far below or above it).
+static func _near_ramp(p: Vector3, ramps: Array[RoadPath], margin: float) -> bool:
+	for ramp in ramps:
+		var reach := ramp.half_width + margin
+		var pts := ramp.points
+		# Cheap rejection against the ramp's ends and middle before the per-sample test.
+		var mid := pts[pts.size() / 2]
+		if Vector2(p.x - mid.x, p.z - mid.z).length() > ramp.length * 0.5 + reach + 20.0:
+			continue
+		for i in range(0, pts.size(), 2):
+			var q := pts[i]
+			if Vector2(p.x - q.x, p.z - q.z).length_squared() < reach * reach and absf(p.y - q.y) < 2.0:
+				return true
 	return false
 
 
@@ -113,7 +126,7 @@ static func _build_fences(body: StaticBody3D, terrain: TerrainData, road: RoadPa
 				break
 			var i := s % n
 			var p := road.points[i] + road.right_at(i) * side * offset
-			if terrain.get_road_distance(p.x, p.z) < 5.0:
+			if terrain.get_road_distance(p.x, p.z) < 5.0 or road.is_bridge(i):
 				prev = Vector3.INF
 				continue
 			p.y = terrain.get_height(p.x, p.z)
@@ -134,7 +147,7 @@ static func _build_fences(body: StaticBody3D, terrain: TerrainData, road: RoadPa
 static func _build_farms(root: Node3D, body: StaticBody3D, terrain: TerrainData, roads: Array[RoadPath],
 		clear_zones: Array[Vector3]) -> void:
 	for road in roads:
-		if road.is_highway:
+		if road.is_highway or road.one_way:
 			continue
 		var sites := [[0.2, 1.0], [0.47, -1.0], [0.8, 1.0]] if road.closed else [[0.35, 1.0], [0.7, -1.0]]
 		var n := road.sample_count()

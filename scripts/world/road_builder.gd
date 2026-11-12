@@ -45,6 +45,10 @@ static func build(parent: Node3D, road: RoadPath) -> void:
 	material.set_shader_parameter(&"median_width", road.median_width)
 	material.set_shader_parameter(&"dash_length", road.dash_length)
 	material.set_shader_parameter(&"dash_gap", road.dash_gap)
+	material.set_shader_parameter(&"one_way", road.one_way)
+	material.set_shader_parameter(&"edge_dash_count", mini(road.edge_dashes.size(), 16))
+	if not road.edge_dashes.is_empty():
+		material.set_shader_parameter(&"edge_dashes", road.edge_dashes.slice(0, 16))
 
 	var road_mesh := MeshInstance3D.new()
 	road_mesh.name = "Road_%s" % road.name

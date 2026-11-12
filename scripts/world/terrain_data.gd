@@ -277,8 +277,23 @@ func _rasterize_road(road: RoadPath, road_index: int, j0: int, j1: int, z_min: f
 		var e := mini(s + stride, segments)
 		var a := pts[s]
 		var b := pts[e % n]
+		# Bridges: no fill under the span, and the approach embankments end in a vertical cut at the abutment
+		# faces (cells past the cut are skipped rather than getting the rounded end of the chord).
+		var t_lo := -INF
+		var t_hi := INF
+		var skip := false
+		if not road.bridges.is_empty():
+			var d_s := road.distances[s]
+			var d_e := road.distances[e % n] if e < n else road.length
+			for r in road.bridges:
+				if d_s >= r.x and d_e <= r.y:
+					skip = true
+				if d_s < r.x and r.x - d_e < reach:
+					t_hi = minf(t_hi, (r.x - d_s) / (d_e - d_s))
+				if d_e > r.y and d_s - r.y < reach:
+					t_lo = maxf(t_lo, (r.y - d_s) / (d_e - d_s))
 		s = e
-		if maxf(a.z, b.z) + reach < z_min or minf(a.z, b.z) - reach > z_max:
+		if skip or maxf(a.z, b.z) + reach < z_min or minf(a.z, b.z) - reach > z_max:
 			continue
 		var a2 := Vector2(a.x, a.z)
 		var ab := Vector2(b.x, b.z) - a2
@@ -292,7 +307,10 @@ func _rasterize_road(road: RoadPath, road_index: int, j0: int, j1: int, z_min: f
 			var row := (j - j0) * VERTS
 			for i in range(i_lo, i_hi + 1):
 				var p := Vector2(-HALF_SIZE + i * CELL_SIZE, z)
-				var t := clampf((p - a2).dot(ab) / len2, 0.0, 1.0)
+				var t := (p - a2).dot(ab) / len2
+				if t > t_hi or t < t_lo:
+					continue
+				t = clampf(t, 0.0, 1.0)
 				var d := p.distance_to(a2 + ab * t) - hw
 				var idx := row + i
 				if d < dist[idx]:
