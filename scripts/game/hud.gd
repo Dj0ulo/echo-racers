@@ -1,6 +1,7 @@
 class_name Hud
 extends CanvasLayer
-## Minimal driving HUD: speedometer with a boost gauge, FPS, a fading controls hint and the pause overlay.
+## Minimal driving HUD: speedometer with a boost gauge, rotating minimap, FPS, a fading controls hint and the
+## pause overlay.
 
 const BOOST_FULL := Color(0.3, 0.82, 1.0)
 const BOOST_ACTIVE := Color(1.0, 0.55, 0.12)
@@ -22,6 +23,7 @@ var _boost_was_full := true
 var _bar_bg := StyleBoxFlat.new()
 var _bar_fill := StyleBoxFlat.new()
 var _hint_time := 10.0
+var _minimap: Minimap
 
 
 func _ready() -> void:
@@ -34,6 +36,10 @@ func _ready() -> void:
 	_speed_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 
 	_build_boost_gauge()
+
+	_minimap = Minimap.new()
+	add_child(_minimap)
+	_minimap.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT, Control.PRESET_MODE_KEEP_SIZE, 24)
 
 	_fps_label = _make_label(16)
 	_fps_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT, Control.PRESET_MODE_KEEP_SIZE, 16)
@@ -58,6 +64,7 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	if car:
+		_minimap.car = car
 		_speed_label.text = "%d km/h" % roundi(car.get_speed_kmh())
 		_update_boost_gauge(delta)
 	_fps_label.text = "%d FPS" % Engine.get_frames_per_second()

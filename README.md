@@ -55,7 +55,10 @@ __NV_PRIME_RENDER_OFFLOAD=1 __VK_LAYER_NV_optimus=NVIDIA_only __GLX_VENDOR_LIBRA
   for the player's car). Cars are kinematic `AnimatableBody3D`s (`traffic_car.gd`) on collision layers 1+3, so
   the player crashes into them physically; `traffic_car_mesh.gd` builds the low-poly bodies (sedan, hatch, van,
   pickup, box truck).
-- `scripts/game/` — `main.gd` (spawn, pause, reset) and `hud.gd`.
+- `scripts/game/` — `main.gd` (spawn, pause, reset), `hud.gd` and `minimap.gd` (bottom-left, heading-up circular
+  minimap: terrain and every road in `WorldGenerator.roads` are rendered once into a mipmapped texture sized from
+  the road network's extent, then a shader rotates/samples it each frame; traffic dots, north marker, zooms out
+  with speed).
 - `shaders/` — road markings, wind-swayed grass, speed streaks and the high-speed screen overlay.
 
 ## Debug
