@@ -47,10 +47,15 @@ __NV_PRIME_RENDER_OFFLOAD=1 __VK_LAYER_NV_optimus=NVIDIA_only __GLX_VENDOR_LIBRA
   (terrain is split into frustum-culled chunks; trees keep ≥5 m apart and thin out near roads, only their trunks
   are solid, and they switch to cheap stand-ins past ~420 m; thousands of static
   colliders go through `collider_batch.gd` straight to the PhysicsServer). `palette.gd` holds the shared colours.
-- World layout (~2.3 km across, ±1152 m): the original winding country loop sits in the middle; a 6.5 km 2×2-lane
-  highway with a concrete median barrier, guard rails, 1 km straights and ~520 m radius bends loops around it;
-  three winding country link roads join the loop to the highway through at-grade T-junctions (gaps in the rails
-  and median there). Hills rise at the map edge with mountains beyond.
+- World layout (~4.6 km across, ±2304 m): the original winding country loop sits in the middle; a 6.5 km 2×2-lane
+  highway with a concrete median barrier, guard rails, 1 km straights and ~520 m radius bends loops around it
+  (±950 m); three winding country link roads join the loop to the highway through at-grade T-junctions (gaps in
+  the rails and median there). Past the highway a ~650 m band of rolling countryside leads to ridged, rocky,
+  snow-capped mountains (from ~1600 m out) that form the map's natural boundary (invisible walls at the very
+  edge), with even higher ranges beyond as backdrop. The `mountain_road` (4 km) leaves the highway opposite
+  `link_north`, crosses the outer countryside and winds along the north-east foothills back to the highway
+  opposite `link_east`. Terrain chunks away from roads outside the highway are generated and meshed at 1/2 or
+  1/4 resolution (exactly matching the collider), and forests thin out there and stop at the tree line.
 - `scripts/traffic/` — `traffic_manager.gd` (node `Traffic` in `main.tscn`) drives ~36 AI cars on the country loop
   and the highway, both directions, with the Intelligent Driver Model (keeps a time gap, slows for bends, brakes
   for the player's car and crashed cars). Cars are kinematic `AnimatableBody3D`s (`traffic_car.gd`, layer 3 only)
@@ -76,3 +81,5 @@ another road of the network instead of the country loop (on the highway, in the 
 `$GODOT --headless --path . -- --autodrive --crashtest` instead stages crashes on a highway straight (rear-ending a
 hatch and a truck, an off-centre T-bone, being T-boned by a van, a side swipe) and prints pre/post velocities, yaw
 rates and the hit car's recovery; every player crash is also logged in the other autodrive modes.
+`--view=x,y,z,tx,ty,tz` (repeatable, with `--shots`) first saves fog-free stills from a free camera at `x,y,z`
+looking at `tx,ty,tz`; `--view=overview` shows the whole map.

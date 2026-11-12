@@ -7,6 +7,8 @@ extends Node3D
 ##  - "country": the original winding loop in the middle of the map.
 ##  - "highway": a wide 2x2-lane loop with a median, long straights and sweeping bends near the map edge.
 ##  - "link_*": winding country roads joining the loop to the highway with at-grade T-junctions.
+##  - "mountain_road": leaves the highway's outer edge opposite link_north, crosses the outer countryside,
+##    climbs along the north-east mountain foothills and comes back down to the highway opposite link_east.
 
 ## Country loop control points (x, z). The spline passes through each of them.
 const ROAD_CONTROL_POINTS := [
@@ -32,6 +34,16 @@ const LINK_ROADS := [
 	{"name": &"link_southwest", "from": Vector2(-210, 152),
 		"via": [Vector2(-320, 250), Vector2(-360, 400), Vector2(-500, 470), Vector2(-560, 620), Vector2(-500, 780)],
 		"to": Vector2(-500, 900)},
+]
+
+## Roads outside the highway ring. Same format as LINK_ROADS, but both ends join the highway's outer edge.
+const OUTER_ROADS := [
+	{"name": &"mountain_road", "from": Vector2(150, -905),
+		"via": [Vector2(165, -1060), Vector2(110, -1230), Vector2(260, -1420), Vector2(540, -1560),
+			Vector2(850, -1700), Vector2(1150, -1760), Vector2(1450, -1660), Vector2(1700, -1430),
+			Vector2(1820, -1110), Vector2(1760, -800), Vector2(1560, -600), Vector2(1350, -430),
+			Vector2(1220, -220), Vector2(1110, -60), Vector2(1060, 30)],
+		"to": Vector2(940, 30)},
 ]
 
 @export var world_seed := 1337
@@ -80,10 +92,16 @@ func generate() -> void:
 
 	for def: Dictionary in LINK_ROADS:
 		roads.append(_build_link(def, road, highway))
+	for def: Dictionary in OUTER_ROADS:
+		roads.append(_build_link(def, highway, highway, 90, 40.0))
 
 	var t_roads := Time.get_ticks_msec()
 	terrain.build(roads)
 	var t_terrain := Time.get_ticks_msec()
+	var steps := [0, 0, 0, 0, 0]
+	for st in terrain.chunk_step:
+		steps[st] += 1
+	print("  terrain chunks: %d detailed, %d at 1/2 and %d at 1/4 resolution" % [steps[1], steps[2], steps[4]])
 
 	TerrainBuilder.build(self, terrain)
 	var t_mesh := Time.get_ticks_msec()
@@ -139,7 +157,8 @@ func _make_country_road(road_name: StringName) -> RoadPath:
 
 ## Open country road from the edge of `from_road` to the edge of `to_road`, leaving and arriving square-on,
 ## with its end heights pinned to the roads it joins.
-func _build_link(def: Dictionary, from_road: RoadPath, to_road: RoadPath) -> RoadPath:
+func _build_link(def: Dictionary, from_road: RoadPath, to_road: RoadPath, smoothing := 30,
+		reach := 22.0) -> RoadPath:
 	var via: Array = def.via
 	var a := _junction_point(from_road, def.from, via[0])
 	var b := _junction_point(to_road, def.to, via[via.size() - 1])
@@ -150,7 +169,8 @@ func _build_link(def: Dictionary, from_road: RoadPath, to_road: RoadPath) -> Roa
 	controls.append(b[0])
 	var link := _make_country_road(def.name)
 	link.closed = false
-	link.build(controls, terrain.natural_height, 30, 3, {"start": a[2], "end": b[2]})
+	link.terrain_reach = reach
+	link.build(controls, terrain.natural_height, smoothing, 3, {"start": a[2], "end": b[2]})
 	# The ends tuck just under the road they join so the two surfaces don't z-fight.
 	var last := link.sample_count() - 1
 	link.points[0].y -= 0.04

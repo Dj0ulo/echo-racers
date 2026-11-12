@@ -2,6 +2,8 @@ extends Node
 ## Debug helper, enabled with `godot -- --autodrive [--shots=/abs/dir] [--road=highway] [--traffic]`.
 ## `--road=<name>` drives another road of the network (in its inner right-hand lane on multi-lane roads);
 ## traffic stays off unless `--traffic` is given.
+## `--view=x,y,z,tx,ty,tz` (repeatable, needs --shots) also saves a still from a free camera at (x, y, z)
+## looking at (tx, ty, tz) before the drive starts (view_<k>.png); `--view=overview` is a whole-map view.
 ## A simple pure-pursuit autopilot drives along the road (with handbrake drift scenarios and a
 ## brake/reverse test), prints handling telemetry, optionally saves screenshots, then quits.
 ##
@@ -51,6 +53,9 @@ var _resets_done := {}
 var _road: RoadPath
 var _lane_offset := 0.0
 var _max_target_kmh := 170.0
+var _views: Array[PackedFloat32Array] = []
+var _view_cam: Camera3D
+var _view_frame := 0
 
 ## Crash test scenarios (highway, carriageway with increasing distance). Distances are relative to the
 ## player's start; "lat" shifts the traffic car sideways off its lane centre; "yaw" is relative to the lane.
@@ -88,6 +93,11 @@ func _ready() -> void:
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--shots="):
 			_shots_dir = arg.trim_prefix("--shots=")
+		elif arg.begins_with("--view="):
+			var spec := arg.trim_prefix("--view=")
+			if spec == "overview":
+				spec = "-2900,3000,2900,0,0,0"
+			_views.append(PackedFloat32Array(Array(spec.split_floats(","))))
 		elif arg.begins_with("--road="):
 			var road_name := arg.trim_prefix("--road=")
 			for r in _world.roads:
@@ -193,6 +203,8 @@ func _physics_process(delta: float) -> void:
 
 
 func _process(delta: float) -> void:
+	if _take_views():
+		return
 	if _time > 2.0:
 		_frames += 1
 		_min_fps = minf(_min_fps, 1.0 / maxf(delta, 1e-6))
@@ -204,6 +216,39 @@ func _process(delta: float) -> void:
 		image.save_png(path)
 		print("Saved ", path)
 	_shot_index += 1
+
+
+## Saves the `--view` stills (a few frames each so the renderer settles), pausing the drive meanwhile.
+## Returns true while views are still being taken.
+func _take_views() -> bool:
+	if _views.is_empty() or _shots_dir.is_empty():
+		return false
+	var k := _view_frame / 8
+	if k >= _views.size():
+		_view_cam.queue_free()
+		get_parent().get_node("ChaseCamera").make_current()
+		_views.clear()
+		get_tree().paused = false
+		return false
+	get_tree().paused = true
+	if _view_cam == null:
+		_view_cam = Camera3D.new()
+		_view_cam.far = 12000.0
+		_view_cam.fov = 60.0
+		var env: Environment = get_parent().get_node("WorldEnvironment").environment.duplicate()
+		env.fog_enabled = false  # Aerial stills are for checking the layout.
+		_view_cam.environment = env
+		get_parent().add_child(_view_cam)
+	var v := _views[k]
+	_view_cam.make_current()
+	_view_cam.look_at_from_position(Vector3(v[0], v[1], v[2]), Vector3(v[3], v[4], v[5]))
+	if _view_frame % 8 == 7:
+		var image := get_viewport().get_texture().get_image()
+		var path := "%s/view_%d.png" % [_shots_dir, k]
+		image.save_png(path)
+		print("Saved ", path)
+	_view_frame += 1
+	return true
 
 
 func _slip_deg() -> float:

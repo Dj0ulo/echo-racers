@@ -205,9 +205,9 @@ static func _build_hay_fields(root: Node3D, body: StaticBody3D, terrain: Terrain
 	bale_shape.radius = 0.75
 	bale_shape.height = 1.3
 	var fields := 0
-	var limit := TerrainData.HALF_SIZE - 120.0
-	for _attempt in 4000:
-		if fields >= 34:
+	var limit := TerrainData.MOUNTAIN_START - 100.0  # Fields stay in the lowlands.
+	for _attempt in 8000:
+		if fields >= 60:
 			break
 		var cx := rng.randf_range(-limit, limit)
 		var cz := rng.randf_range(-limit, limit)
@@ -277,9 +277,9 @@ static func _build_turbines(root: Node3D, terrain: TerrainData, clear_zones: Arr
 
 static func _build_clouds(root: Node3D, rng: RandomNumberGenerator) -> void:
 	var mb := MeshBuilder.new()
-	for _k in 70:
+	for _k in 120:
 		var angle := rng.randf() * TAU
-		var radius := rng.randf_range(150.0, 3600.0)
+		var radius := rng.randf_range(150.0, 5200.0)
 		SceneryMeshes.cloud(rng, Vector3(cos(angle) * radius, rng.randf_range(300.0, 420.0), sin(angle) * radius), mb)
 	var mat := StandardMaterial3D.new()
 	mat.vertex_color_use_as_albedo = true

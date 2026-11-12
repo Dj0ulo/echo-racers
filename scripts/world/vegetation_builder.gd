@@ -8,9 +8,10 @@ const FAR_TREE_CHUNK := 300.0
 const GRASS_CHUNK := 44.0
 const GRASS_VISIBLE_RANGE := 85.0
 const TREE_LOD_DISTANCE := 420.0  ## Beyond this, tree chunks switch to a few-triangle stand-in.
-const TREE_ATTEMPTS := 90000
-const FAR_TREE_ATTEMPTS := 30000
-const ROCK_COUNT := 1800
+const TREE_ATTEMPTS := 300000
+const FAR_TREE_ATTEMPTS := 40000
+const ROCK_COUNT := 5000
+const TREELINE := 150.0          ## Forests thin out from TREELINE - 50 m and stop at this altitude.
 const TREE_HEIGHT_SCALE := 1.3   ## Trees are stretched vertically (the stand-ins share the same transforms).
 const TREE_MIN_SPACING := 5.0    ## Minimum distance between two drivable-area trees.
 const TREE_ROAD_CLEAR := 9.0     ## No trees closer than this to a road edge...
@@ -81,7 +82,13 @@ static func _scatter_trees(terrain: TerrainData, clear_zones: Array[Vector3],
 		var z := rng.randf_range(-limit, limit)
 		var forest := terrain.forest_density(x, z)
 		var chance := 0.012 + smoothstep(0.0, 0.35, forest) * 0.7
+		# Sparser in the outer countryside and mountains (where the player rarely goes).
+		var rim := maxf(absf(x), absf(z))
+		chance *= 1.0 - 0.35 * smoothstep(TerrainData.CORE_HALF, TerrainData.CORE_HALF + 400.0, rim)
 		if rng.randf() > chance:
+			continue
+		var y := terrain.get_height(x, z)
+		if y > TREELINE - 50.0 and rng.randf() > (TREELINE - y) / 50.0:
 			continue
 		var road_d := terrain.get_road_distance(x, z)
 		if road_d < TREE_ROAD_CLEAR or _in_clear_zone(x, z, clear_zones):
@@ -96,7 +103,6 @@ static func _scatter_trees(terrain: TerrainData, clear_zones: Array[Vector3],
 		if not placed.has(cell):
 			placed[cell] = []
 		placed[cell].append(Vector2(x, z))
-		var y := terrain.get_height(x, z)
 		var kind := _pick_tree(rng, forest, y)
 		_add(buckets, kind, x, z, TREE_CHUNK, _random_xform(rng, x, y - 0.1, z, 0.75, 1.3, TREE_HEIGHT_SCALE))
 		colliders.add(trunk, Transform3D(Basis(), Vector3(x, y + TRUNK_HEIGHT * 0.5, z)))
@@ -120,7 +126,7 @@ static func _too_close(placed: Dictionary, cell: Vector2i, x: float, z: float, m
 static func _scatter_far_trees(terrain: TerrainData, rng: RandomNumberGenerator, buckets: Dictionary) -> void:
 	for _i in FAR_TREE_ATTEMPTS:
 		var angle := rng.randf() * TAU
-		var radius := rng.randf_range(TerrainData.HALF_SIZE + 6.0, TerrainData.HALF_SIZE * 2.2)
+		var radius := rng.randf_range(TerrainData.HALF_SIZE + 6.0, TerrainData.HALF_SIZE * 1.9)
 		var x := cos(angle) * radius
 		var z := sin(angle) * radius
 		if terrain.is_inside(x, z):
@@ -129,7 +135,7 @@ static func _scatter_far_trees(terrain: TerrainData, rng: RandomNumberGenerator,
 		if rng.randf() > smoothstep(-0.1, 0.3, forest) * 0.6:
 			continue
 		var y := terrain.get_height(x, z)
-		if y > 150.0 or terrain.get_normal(x, z, 6.0).y < 0.8:
+		if y > TREELINE or terrain.get_normal(x, z, 6.0).y < 0.8:
 			continue
 		var kind := _pick_tree(rng, forest, y)
 		_add(buckets, kind, x, z, FAR_TREE_CHUNK, _random_xform(rng, x, y - 0.3, z, 1.0, 1.6, TREE_HEIGHT_SCALE))
@@ -187,13 +193,14 @@ static func _scatter_grass(terrain: TerrainData, clear_zones: Array[Vector3],
 			var z0 := -TerrainData.HALF_SIZE + cj * GRASS_CHUNK
 			if not _chunk_near_road(terrain, x0, z0, GRASS_CHUNK, 30.0):
 				continue
+			var zones := _zones_overlapping(clear_zones, x0, z0, GRASS_CHUNK)
 			for _k in 230:
 				var x := x0 + rng.randf() * GRASS_CHUNK
 				var z := z0 + rng.randf() * GRASS_CHUNK
 				var patch := terrain.patch_noise(x * 1.7, z * 1.7)
 				if rng.randf() > 0.35 + patch * 0.5:
 					continue
-				if terrain.get_road_distance(x, z) < 2.2 or _in_clear_zone(x, z, clear_zones):
+				if terrain.get_road_distance(x, z) < 2.2 or _in_clear_zone(x, z, zones):
 					continue
 				if terrain.get_normal(x, z).y < 0.8:
 					continue
@@ -219,6 +226,15 @@ static func _random_xform(rng: RandomNumberGenerator, x: float, y: float, z: flo
 	var s := rng.randf_range(min_s, max_s)
 	var basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(s, s * height_scale * rng.randf_range(0.9, 1.15), s))
 	return Transform3D(basis, Vector3(x, y, z))
+
+
+## The clear zones that touch the square chunk at (x0, z0).
+static func _zones_overlapping(zones: Array[Vector3], x0: float, z0: float, size: float) -> Array[Vector3]:
+	var out: Array[Vector3] = []
+	for zone in zones:
+		if zone.x + zone.z > x0 and zone.x - zone.z < x0 + size and zone.y + zone.z > z0 and zone.y - zone.z < z0 + size:
+			out.append(zone)
+	return out
 
 
 static func _in_clear_zone(x: float, z: float, zones: Array[Vector3]) -> bool:
