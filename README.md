@@ -52,9 +52,14 @@ __NV_PRIME_RENDER_OFFLOAD=1 __VK_LAYER_NV_optimus=NVIDIA_only __GLX_VENDOR_LIBRA
   and median there). Hills rise at the map edge with mountains beyond.
 - `scripts/traffic/` — `traffic_manager.gd` (node `Traffic` in `main.tscn`) drives ~36 AI cars on the country loop
   and the highway, both directions, with the Intelligent Driver Model (keeps a time gap, slows for bends, brakes
-  for the player's car). Cars are kinematic `AnimatableBody3D`s (`traffic_car.gd`) on collision layers 1+3, so
-  the player crashes into them physically; `traffic_car_mesh.gd` builds the low-poly bodies (sedan, hatch, van,
-  pickup, box truck).
+  for the player's car and crashed cars). Cars are kinematic `AnimatableBody3D`s (`traffic_car.gd`, layer 3 only)
+  with a mass per type (hatch 1100 kg … box truck 6000 kg). Crashes are momentum-based: the manager tests the
+  player's body box against nearby traffic (and crashed cars against other traffic) as oriented boxes and
+  exchanges a horizontal impulse at the contact point (restitution ~0.28, friction, masses and yaw inertias, a
+  per-pair cooldown so contacts never double-bounce), so a hatch gets punted, a truck barely budges and
+  off-centre hits spin both cars without launching anything. A hit car slides, spins and brakes to a stop, waits
+  a few seconds, then eases back into its lane; impacts play the car's crash sound scaled by speed and mass.
+  `traffic_car_mesh.gd` builds the low-poly bodies (sedan, hatch, van, pickup, box truck).
 - `scripts/game/` — `main.gd` (spawn, pause, reset), `hud.gd` and `minimap.gd` (bottom-left, heading-up circular
   minimap: terrain and every road in `WorldGenerator.roads` are rendered once into a mipmapped texture sized from
   the road network's extent, then a shader rotates/samples it each frame; traffic dots, north marker, zooms out
@@ -67,3 +72,6 @@ __NV_PRIME_RENDER_OFFLOAD=1 __VK_LAYER_NV_optimus=NVIDIA_only __GLX_VENDOR_LIBRA
 prints handling telemetry and FPS, optionally saves screenshots, then quits. Works headless for physics checks.
 Traffic is off during autodrive unless `--traffic` is passed; `--road=highway` (or `link_north`, ...) drives
 another road of the network instead of the country loop (on the highway, in the inner lane at up to 260 km/h).
+`$GODOT --headless --path . -- --autodrive --crashtest` instead stages crashes on a highway straight (rear-ending a
+hatch and a truck, an off-centre T-bone, being T-boned by a van, a side swipe) and prints pre/post velocities, yaw
+rates and the hit car's recovery; every player crash is also logged in the other autodrive modes.

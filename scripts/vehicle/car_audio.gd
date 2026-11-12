@@ -489,6 +489,15 @@ func _play(p: AudioStreamPlayer, gain: float, pitch: float) -> void:
 
 # --- Events (thumps, landings, impacts) --------------------------------------------------------
 
+## Body impact against another vehicle (called by TrafficManager): `strength` 0..1 from the closing
+## speed, `heaviness` 0..1 from the other vehicle's mass (lower, duller crunch). Takes over from the
+## velocity-change detector below for this hit.
+func play_impact(strength: float, heaviness := 0.0) -> void:
+	var pitch := randf_range(0.9, 1.05) * lerpf(1.15, 0.8, strength) * lerpf(1.0, 0.82, heaviness)
+	_play(_impact, effects_volume * lerpf(0.3, 0.75, strength), pitch)
+	_impact_cooldown = 0.3
+
+
 func _physics_process(delta: float) -> void:
 	if _car == null or _car.wheels.is_empty():
 		return

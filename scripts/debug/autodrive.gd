@@ -5,6 +5,9 @@ extends Node
 ## A simple pure-pursuit autopilot drives along the road (with handbrake drift scenarios and a
 ## brake/reverse test), prints handling telemetry, optionally saves screenshots, then quits.
 ##
+## `--crashtest` replaces the lap with scripted crashes against traffic on a highway straight (rear-ending a
+## hatch and a truck, an off-centre T-bone, being T-boned, a side swipe) and prints pre/post velocities.
+##
 ## Drift scenarios (each logged at 10 Hz and summarised):
 ##  - "flick":    handbrake flick into a corner, then the autopilot counter-steers on throttle.
 ##  - "sustain":  handbrake flick, then full throttle with a player-like counter-steer that aims to
@@ -49,6 +52,33 @@ var _road: RoadPath
 var _lane_offset := 0.0
 var _max_target_kmh := 170.0
 
+## Crash test scenarios (highway, carriageway with increasing distance). Distances are relative to the
+## player's start; "lat" shifts the traffic car sideways off its lane centre; "yaw" is relative to the lane.
+## A traffic car with "slide" is put in its crashed (free sliding) state with that velocity along the lane.
+const CRASH_TESTS := [
+	{"name": "rear-end hatch", "kind": TrafficCarMesh.Kind.HATCH, "lane": 1, "ahead": 30.0, "speed": 15.0,
+		"p_lane": 1, "p_speed": 30.0},
+	{"name": "rear-end truck", "kind": TrafficCarMesh.Kind.TRUCK, "lane": 1, "ahead": 30.0, "speed": 15.0,
+		"p_lane": 1, "p_speed": 30.0},
+	{"name": "T-bone parked sedan off-centre", "kind": TrafficCarMesh.Kind.SEDAN, "lane": 1, "ahead": 25.0,
+		"speed": 0.0, "slide": 0.0, "yaw": 90.0, "lat": 1.4, "p_lane": 1, "p_speed": 20.0},
+	{"name": "van T-bones stopped player", "kind": TrafficCarMesh.Kind.VAN, "lane": 1, "ahead": -22.0,
+		"speed": 0.0, "slide": 18.0, "yaw": 0.0, "lat": 1.0, "p_lane": 1, "p_speed": 0.0, "p_yaw": 90.0},
+	{"name": "side swipe pickup", "kind": TrafficCarMesh.Kind.PICKUP, "lane": 1, "ahead": 8.0, "speed": 26.0,
+		"p_lane": 0, "p_speed": 32.0, "p_target_lane": 1},
+]
+const CRASH_TEST_TIME := 9.0
+var _crash_mode := false
+var _traffic: TrafficManager
+var _ct_index := -1
+var _ct_time := 0.0
+var _ct_s0 := 0.0
+var _ct_lanes: Array = []
+var _ct_car: TrafficCar
+var _ct_car_start := Vector3.ZERO
+var _ct_hit_time := -1.0
+var _ct_stats := {}
+
 
 func _ready() -> void:
 	_car = get_parent().get_node("Car")
@@ -63,6 +93,9 @@ func _ready() -> void:
 			for r in _world.roads:
 				if String(r.name) == road_name:
 					_road = r
+	if "--crashtest" in OS.get_cmdline_user_args():
+		_setup_crash_test()
+		return
 	if _road != _world.road:
 		if _road.median_width > 0.0:
 			_lane_offset = _road.lane_offsets()[0]
@@ -74,6 +107,9 @@ func _ready() -> void:
 
 func _physics_process(delta: float) -> void:
 	_time += delta
+	if _crash_mode:
+		_crash_test_step(delta)
+		return
 	var road := _road
 	var pos := _car.global_position
 	var idx := road.nearest_index(pos)
@@ -227,3 +263,143 @@ func _end_event() -> void:
 		("%.2f s" % (_ev.recovered - _ev.release)) if _ev.recovered >= 0.0 else "never",
 		_ev.overshoot, _ev.v_min, _ev.spun])
 	_ev = {}
+
+
+# --- Crash test ---------------------------------------------------------------------------------
+
+func _setup_crash_test() -> void:
+	_crash_mode = true
+	_traffic = get_parent().get_node("Traffic") as TrafficManager
+	_road = _world.highway
+	# Straightest stretch of the highway: smallest heading change over +-120 m.
+	var span := int(120.0 / _road.step)
+	var best := INF
+	for i in range(0, _road.points.size(), 5):
+		var bend := _road.tangents[_road.wrap_index(i - span)].angle_to(_road.tangents[_road.wrap_index(i + span)])
+		if bend < best:
+			best = bend
+			_ct_s0 = _road.distances[i] - 60.0
+	for lane in _traffic.lanes:
+		if lane.road == _road and lane.dir > 0.0:
+			_ct_lanes.append(lane)
+	_ct_lanes.sort_custom(func(a, b) -> bool: return absf(a.offset) < absf(b.offset))
+	_traffic.player_crashed.connect(_on_player_crashed)
+	print("Crash test on the highway at s=%.0f m (bend %.3f rad over 240 m)" % [_ct_s0, best])
+	_next_crash_test()
+
+
+func _next_crash_test() -> void:
+	_end_crash_test()
+	_ct_index += 1
+	if _ct_index >= CRASH_TESTS.size():
+		print("Crash test done")
+		get_tree().quit()
+		return
+	var t: Dictionary = CRASH_TESTS[_ct_index]
+	_ct_time = 0.0
+	_ct_hit_time = -1.0
+	_ct_car = null
+	for car in _traffic.get_children():
+		if car is TrafficCar and car.kind == t.kind:
+			_ct_car = car
+			break
+	var lane = _ct_lanes[t.lane]
+	_traffic.debug_clear(_road, _ct_s0, 260.0, [_ct_car])
+	_traffic.debug_place(_ct_car, lane, _ct_s0 + t.ahead, t.speed)
+	if t.has("slide"):
+		_ct_car.begin_crash()
+		var basis := Basis(Vector3.UP, deg_to_rad(float(t.get("yaw", 0.0)))) * _ct_car.global_basis
+		var pos: Vector3 = _ct_car.global_position + _lane_right() * float(t.get("lat", 0.0))
+		_ct_car.global_transform = Transform3D(basis, pos)
+		var fwd := -basis.z
+		_ct_car.heading = atan2(-fwd.x, -fwd.z)
+		_ct_car.crash_vel = _lane_fwd() * t.slide
+		_ct_car.hold_time = 3.0
+		_ct_car.reset_physics_interpolation()
+	elif t.has("lat"):
+		_ct_car.global_position += _lane_right() * t.lat
+	# Player
+	var p_lane = _ct_lanes[t.p_lane]
+	_lane_offset = p_lane.offset
+	var smp: Array = _road.sample_at(_ct_s0)
+	var tangent: Vector3 = smp[1]
+	var right := Vector3(-tangent.z, 0.0, tangent.x)
+	var basis := Basis(Vector3.UP, deg_to_rad(float(t.get("p_yaw", 0.0)))) * Basis.looking_at(tangent, Vector3.UP)
+	_car.reset_to(Transform3D(basis, (smp[0] as Vector3) + right * p_lane.offset + Vector3.UP * 0.9))
+	_car.linear_velocity = tangent * t.p_speed
+	get_parent().get_node("ChaseCamera").snap()
+	_ct_car_start = _ct_car.global_position
+	_ct_stats = {"max_vy": 0.0, "min_up": 1.0, "max_yaw": 0.0, "car_max_yaw": 0.0, "car_max_disp": 0.0,
+		"p_pre": Vector3.ZERO, "c_pre": Vector3.ZERO}
+	print("--- crash test '%s': %s %.0f kg, player %.0f km/h, traffic %.0f km/h ---" % [
+		t.name, TrafficCarMesh.Kind.keys()[t.kind], _ct_car.mass, t.p_speed * 3.6,
+		(t.get("slide", t.speed) as float) * 3.6])
+
+
+func _lane_fwd() -> Vector3:
+	return _road.sample_at(_ct_s0)[1]
+
+
+func _lane_right() -> Vector3:
+	var t := _lane_fwd()
+	return Vector3(-t.z, 0.0, t.x)
+
+
+func _on_player_crashed(car: TrafficCar, closing: float) -> void:
+	if _ct_hit_time < 0.0 and car == _ct_car:
+		_ct_hit_time = _ct_time
+		_ct_stats.closing = closing
+
+
+func _crash_test_step(delta: float) -> void:
+	var t: Dictionary = CRASH_TESTS[_ct_index]
+	_ct_time += delta
+	if _ct_hit_time < 0.0:
+		_ct_stats.p_pre = _car.linear_velocity
+		_ct_stats.c_pre = _ct_car.get_velocity()
+	# Drive straight along the lane at the test speed until the hit, then let go of everything.
+	var throttle := 0.0
+	var steer := 0.0
+	if _ct_hit_time < 0.0 and t.p_speed > 0.0:
+		var target_offset: float = _ct_lanes[t.get("p_target_lane", t.p_lane)].offset
+		var idx := _road.nearest_index(_car.global_position)
+		var ti := _road.wrap_index(idx + 8)
+		var target := _road.points[ti] + _road.right_at(ti) * target_offset
+		var local := _car.global_transform.affine_inverse() * target
+		steer = clampf(atan2(local.x, -local.z) * 2.5, -1.0, 1.0)
+		throttle = 1.0 if _car.speed < t.p_speed else 0.0
+	_car.input.throttle = throttle
+	_car.input.brake = 0.0
+	_car.input.steer = steer
+	_car.input.handbrake = false
+	if _ct_hit_time >= 0.0:
+		_ct_stats.max_vy = maxf(_ct_stats.max_vy, absf(_car.linear_velocity.y))
+		_ct_stats.min_up = minf(_ct_stats.min_up, _car.global_basis.y.y)
+		_ct_stats.max_yaw = maxf(_ct_stats.max_yaw, absf(_car.angular_velocity.y))
+		_ct_stats.car_max_yaw = maxf(_ct_stats.car_max_yaw, absf(_ct_car.get_yaw_rate()))
+		var rel := _ct_time - _ct_hit_time
+		if rel < 1.5 and fmod(rel + 1e-4, 0.25) < delta:
+			print("  +%.2fs player %5.1f km/h yaw %5.2f | %s %5.1f km/h yaw %5.2f state=%s" % [
+				rel, _car.linear_velocity.length() * 3.6, _car.angular_velocity.y,
+				TrafficCarMesh.Kind.keys()[_ct_car.kind], _ct_car.get_velocity().length() * 3.6,
+				_ct_car.get_yaw_rate(), TrafficCar.State.keys()[_ct_car.state]])
+	if _ct_time > CRASH_TEST_TIME:
+		_next_crash_test()
+
+
+func _end_crash_test() -> void:
+	if _ct_index < 0:
+		return
+	var t: Dictionary = CRASH_TESTS[_ct_index]
+	if _ct_hit_time < 0.0:
+		print("Crash test '%s': NO IMPACT" % t.name)
+		return
+	var p_pre: Vector3 = _ct_stats.p_pre
+	var c_pre: Vector3 = _ct_stats.c_pre
+	var fwd := _lane_fwd()
+	print(("Crash test '%s': closing %.1f km/h | player along lane %.1f -> %.1f km/h now, peak yaw %.2f rad/s, " +
+		"max |vy| %.2f m/s, min up.y %.2f | traffic along lane %.1f km/h before, peak yaw %.2f rad/s, " +
+		"moved %.1f m, state %s") % [
+		t.name, _ct_stats.closing * 3.6, p_pre.dot(fwd) * 3.6, _car.linear_velocity.dot(fwd) * 3.6,
+		_ct_stats.max_yaw, _ct_stats.max_vy, _ct_stats.min_up, c_pre.dot(fwd) * 3.6, _ct_stats.car_max_yaw,
+		_ct_car.global_position.distance_to(_ct_car_start), TrafficCar.State.keys()[_ct_car.state]])
