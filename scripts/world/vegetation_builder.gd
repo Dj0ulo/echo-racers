@@ -11,6 +11,12 @@ const TREE_LOD_DISTANCE := 420.0  ## Beyond this, tree chunks switch to a few-tr
 const TREE_ATTEMPTS := 90000
 const FAR_TREE_ATTEMPTS := 30000
 const ROCK_COUNT := 1800
+const TREE_HEIGHT_SCALE := 1.3   ## Trees are stretched vertically (the stand-ins share the same transforms).
+const TREE_MIN_SPACING := 5.0    ## Minimum distance between two drivable-area trees.
+const TREE_ROAD_CLEAR := 9.0     ## No trees closer than this to a road edge...
+const TREE_ROAD_SPARSE := 22.0   ## ...and thinner forest up to this distance, so roadsides stay open.
+const TRUNK_RADIUS := 0.24       ## Collider: the trunk only, branches and foliage are not solid.
+const TRUNK_HEIGHT := 8.0
 
 
 ## `clear_zones` holds Vector3(x, z, radius) circles (buildings, fields) where nothing should grow.
@@ -63,10 +69,13 @@ static func build(parent: Node3D, terrain: TerrainData, clear_zones: Array[Vecto
 static func _scatter_trees(terrain: TerrainData, clear_zones: Array[Vector3],
 		rng: RandomNumberGenerator, buckets: Dictionary, colliders: ColliderBatch) -> void:
 	var trunk := CylinderShape3D.new()
-	trunk.radius = 0.4
-	trunk.height = 6.0
+	trunk.radius = TRUNK_RADIUS
+	trunk.height = TRUNK_HEIGHT
 	var limit := TerrainData.HALF_SIZE - 3.0
-	var keep_clear := 6.5
+	# Spatial hash (cells of TREE_MIN_SPACING) of the trees placed so far, for the spacing test.
+	var placed := {}
+	var min_d2 := TREE_MIN_SPACING * TREE_MIN_SPACING
+	var count := 0
 	for _i in TREE_ATTEMPTS:
 		var x := rng.randf_range(-limit, limit)
 		var z := rng.randf_range(-limit, limit)
@@ -74,14 +83,37 @@ static func _scatter_trees(terrain: TerrainData, clear_zones: Array[Vector3],
 		var chance := 0.012 + smoothstep(0.0, 0.35, forest) * 0.7
 		if rng.randf() > chance:
 			continue
-		if terrain.get_road_distance(x, z) < keep_clear or _in_clear_zone(x, z, clear_zones):
+		var road_d := terrain.get_road_distance(x, z)
+		if road_d < TREE_ROAD_CLEAR or _in_clear_zone(x, z, clear_zones):
+			continue
+		if road_d < TREE_ROAD_SPARSE and rng.randf() > lerpf(0.45, 1.0, smoothstep(TREE_ROAD_CLEAR, TREE_ROAD_SPARSE, road_d)):
 			continue
 		if terrain.get_normal(x, z).y < 0.84:
 			continue
+		var cell := Vector2i(floori(x / TREE_MIN_SPACING), floori(z / TREE_MIN_SPACING))
+		if _too_close(placed, cell, x, z, min_d2):
+			continue
+		if not placed.has(cell):
+			placed[cell] = []
+		placed[cell].append(Vector2(x, z))
 		var y := terrain.get_height(x, z)
 		var kind := _pick_tree(rng, forest, y)
-		_add(buckets, kind, x, z, TREE_CHUNK, _random_xform(rng, x, y - 0.1, z, 0.75, 1.3))
-		colliders.add(trunk, Transform3D(Basis(), Vector3(x, y + 3.0, z)))
+		_add(buckets, kind, x, z, TREE_CHUNK, _random_xform(rng, x, y - 0.1, z, 0.75, 1.3, TREE_HEIGHT_SCALE))
+		colliders.add(trunk, Transform3D(Basis(), Vector3(x, y + TRUNK_HEIGHT * 0.5, z)))
+		count += 1
+	print("  trees: %d" % count)
+
+
+static func _too_close(placed: Dictionary, cell: Vector2i, x: float, z: float, min_d2: float) -> bool:
+	for dj in range(-1, 2):
+		for di in range(-1, 2):
+			var pts: Variant = placed.get(cell + Vector2i(di, dj))
+			if pts == null:
+				continue
+			for p: Vector2 in pts:
+				if (p.x - x) * (p.x - x) + (p.y - z) * (p.y - z) < min_d2:
+					return true
+	return false
 
 
 ## Visual-only forests on the hills outside the drivable area.
@@ -100,7 +132,7 @@ static func _scatter_far_trees(terrain: TerrainData, rng: RandomNumberGenerator,
 		if y > 150.0 or terrain.get_normal(x, z, 6.0).y < 0.8:
 			continue
 		var kind := _pick_tree(rng, forest, y)
-		_add(buckets, kind, x, z, FAR_TREE_CHUNK, _random_xform(rng, x, y - 0.3, z, 1.0, 1.6))
+		_add(buckets, kind, x, z, FAR_TREE_CHUNK, _random_xform(rng, x, y - 0.3, z, 1.0, 1.6, TREE_HEIGHT_SCALE))
 
 
 static func _pick_tree(rng: RandomNumberGenerator, forest: float, height: float) -> StringName:
@@ -182,9 +214,10 @@ static func _chunk_near_road(terrain: TerrainData, x0: float, z0: float, size: f
 	return false
 
 
-static func _random_xform(rng: RandomNumberGenerator, x: float, y: float, z: float, min_s: float, max_s: float) -> Transform3D:
+static func _random_xform(rng: RandomNumberGenerator, x: float, y: float, z: float, min_s: float, max_s: float,
+		height_scale := 1.0) -> Transform3D:
 	var s := rng.randf_range(min_s, max_s)
-	var basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(s, s * rng.randf_range(0.9, 1.15), s))
+	var basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(s, s * height_scale * rng.randf_range(0.9, 1.15), s))
 	return Transform3D(basis, Vector3(x, y, z))
 
 

@@ -44,7 +44,8 @@ __NV_PRIME_RENDER_OFFLOAD=1 __VK_LAYER_NV_optimus=NVIDIA_only __GLX_VENDOR_LIBRA
 - `scripts/world/` — `world_generator.gd` defines the road network and orchestrates `terrain_data.gd` (height
   field, every road carved in, computed on the WorkerThreadPool), `road_path.gd` (spline roads, open or looped,
   with a configurable cross-section: lanes, lane width, median) and the `*_builder.gd` mesh/collider builders
-  (terrain is split into frustum-culled chunks; trees switch to cheap stand-ins past ~420 m; thousands of static
+  (terrain is split into frustum-culled chunks; trees keep ≥5 m apart and thin out near roads, only their trunks
+  are solid, and they switch to cheap stand-ins past ~420 m; thousands of static
   colliders go through `collider_batch.gd` straight to the PhysicsServer). `palette.gd` holds the shared colours.
 - World layout (~2.3 km across, ±1152 m): the original winding country loop sits in the middle; a 6.5 km 2×2-lane
   highway with a concrete median barrier, guard rails, 1 km straights and ~520 m radius bends loops around it;
