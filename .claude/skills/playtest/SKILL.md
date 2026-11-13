@@ -33,6 +33,8 @@ DISPLAY=:0 timeout 200 $G --path . -- --autodrive --quiet --road=highway --traff
 timeout 400 $G --headless --path . -- --autodrive --quiet --route=highway,ramp_north_off1,link_north,ramp_north_on2,highway
 # fog-free stills from a free camera (x,y,z looking at tx,ty,tz), saved as view_<k>.png before the drive
 DISPLAY=:0 timeout 200 $G --path . -- --autodrive --quiet --shots=/tmp/er_shots --view=overview --view=100,30,-900,100,0,-700
+# echo mode end to end (record, editor, save, race the ghost); shots echo_editor*.png, echo_race.png
+DISPLAY=:0 timeout 200 $G --path . -- --autodrive --quiet --echotest --shots=/tmp/er_shots 2>&1 | grep -E 'ERROR|SCRIPT|Echo test|Saved'
 # scripted crashes against traffic (prints pre/post velocities; --quiet drops the per-0.25 s timelines)
 timeout 300 $G --headless --path . -- --autodrive --crashtest 2>&1 | grep -E 'ERROR|SCRIPT|Crash test|---' | tail -30
 ```

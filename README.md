@@ -26,10 +26,38 @@ __NV_PRIME_RENDER_OFFLOAD=1 __VK_LAYER_NV_optimus=NVIDIA_only __GLX_VENDOR_LIBRA
 | Steer | A, D / Left, Right | Left stick |
 | Handbrake (drift) | Space | X / Square |
 | Boost (nitro) | Shift | A / Cross |
-| Reset car to road | R | Y / Triangle |
+| Reset car to road (in an echo race: last checkpoint) | R | Back / Select |
+| Echo race menu | Tab | Y / Triangle |
 | Look around (springs back on release) | — | Right stick (±90°) |
 | Look back (hold) | C | Right stick down |
 | Pause (Q quits while paused) | Esc | Start |
+
+## Echo races
+
+Press **Y** (Tab) anywhere to open the side menu (up/down to choose, A/Enter to select, B/Esc to go back; the game
+pauses while it is open) and pick **Start a race here**: the car stops where it is, 3-2-1-GO, and every position is
+recorded. Press Y whenever you want and **End the race & place checkpoints**: a top-down 3D view of the run opens.
+
+- Left/right (stick, d-pad, arrows) scrubs along the run (hold to speed up), LB/RB (`[` `]`) jumps between
+  checkpoints, LT/RT (W/S) zooms toward the cursor.
+- X (F) or **Add / Remove checkpoint here** toggles a checkpoint at the cursor. **Random checkpoints** spreads a
+  few along the run; **Auto: x / y / z extremes** puts one on every local extreme of x, z (outermost points of
+  bends) and y (crests and dips). **Set the finish here** trims the run. Start and finish are always checkpoints.
+- **Style** toggles between neon rings (glowing circle on the ground with a light cylinder) and light gates
+  (two neon pillars with sparks).
+- **Save echo** (or **Discard run**). The course gets a neon blue beacon at its start, also shown on the minimap
+  (pinned to the rim when far away).
+
+Drive into a beacon and press Y to see its echoes, best first, and pick the one to race: 3-2-1-GO, then pass every
+checkpoint in order (the next one pulses; it is also the pink marker on the minimap) against a hologram ghost of the
+echo. The HUD shows the time and your split against the echo at each checkpoint. During a race Y offers restart
+from the start or exit; reset puts you back on the last checkpoint passed. Beat the echo and you can save your run
+as a new echo of that course (older ones are kept). Courses are saved in `user://echoes/` (one `.echo` file each,
+`~/.local/share/godot/app_userdata/<project>/echoes/` on Linux).
+
+Code: `scripts/echo/` — `echo_manager.gd` (game flow, menus, recording at 30 Hz, checkpoint crossing),
+`echo_editor.gd` (top view), `echo_ui.gd` (side menu, timer, countdown, beeps), `echo_track.gd` / `echo_run.gd`
+(data + save files), `checkpoint_gate.gd`, `ghost_car.gd`, `echo_point.gd` (beacon) and `neon.gd` (glow shaders).
 
 ## Layout
 
@@ -89,3 +117,6 @@ rates and the hit car's recovery; every player crash is also logged in the other
 `--view=x,y,z,tx,ty,tz` (repeatable, with `--shots`) first saves fog-free stills from a free camera at `x,y,z`
 looking at `tx,ty,tz`; `--view=overview` shows the whole map. `--route=highway,ramp_north_off1,link_north,ramp_north_on2,highway`
 drives through several roads in turn (here: exit the highway, cross the bridge, rejoin the other carriageway).
+`--autodrive --echotest [--shots=/abs/dir]` runs the echo mode end to end through simulated menu presses: records a
+14 s run, places checkpoints on its extremes in the editor, saves it, races its ghost (following its line a bit
+faster), prints the splits and result, saves the new echo, then deletes the scratch course (`user://echoes_test`).

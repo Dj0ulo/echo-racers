@@ -31,6 +31,12 @@ tabs, typed GDScript, `##` doc comment at the top of each script.
 - `scripts/world/mesh_builder.gd` (MeshBuilder) flat-shaded vertex-coloured triangle accumulator -> ArrayMesh.
 - `scripts/world/collider_batch.gd` (ColliderBatch) thousands of static colliders straight into PhysicsServer.
 - `scripts/world/palette.gd` (Palette) shared colours and materials.
+- `scripts/echo/echo_manager.gd` (EchoManager) echo race flow: Y menu, record, race ghosts, checkpoints, saves.
+- `scripts/echo/echo_editor.gd` (EchoEditor) top-view run review: scrub, place checkpoints, style, save/discard.
+- `scripts/echo/echo_ui.gd` (EchoUi) side menu, race timer/splits, countdown, prompts, beeps.
+- `scripts/echo/echo_track.gd` (EchoTrack) saved course + its echoes (user://echoes); `echo_run.gd` (EchoRun) one recording.
+- `scripts/echo/checkpoint_gate.gd`, `ghost_car.gd`, `echo_point.gd` (beacon), `neon.gd` (glow shaders/materials).
+- `scripts/debug/echo_test.gd` `--autodrive --echotest`: whole echo flow end to end (scratch save folder).
 - `scripts/debug/autodrive.gd` autopilot lap, drift scenarios, `--crashtest`, screenshots (flags in its header).
 - `shaders/` road.gdshader (markings), grass.gdshader (sway), speed_overlay.gdshader, speed_streak.gdshader.
 

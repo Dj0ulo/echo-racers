@@ -21,6 +21,8 @@ const HIGHWAY_FILL := Color(1.0, 0.74, 0.24)
 const TRAFFIC_DOT := Color(0.35, 0.8, 1.0)
 const PLAYER_COLOR := Color(1.0, 0.32, 0.22)
 const RIM := Color(1, 1, 1, 0.55)
+const ECHO_COLOR := Color(0.3, 0.88, 1.0)
+const ECHO_TARGET_COLOR := Color(1.0, 0.4, 0.9)
 
 const MAP_SHADER := """
 shader_type canvas_item;
@@ -47,6 +49,9 @@ void fragment() {
 var car: CarController
 var world: WorldGenerator
 var traffic: Node
+var echo_points := PackedVector3Array()  ## Echo course starts (neon diamonds, pinned to the rim when far).
+var echo_target := Vector3.ZERO          ## Next checkpoint of the echo race...
+var echo_target_active := false          ## ...shown while this is set.
 
 var _map: ColorRect
 var _overlay: Control
@@ -266,6 +271,13 @@ func _draw_overlay() -> void:
 				_overlay.draw_circle(c + s, 2.6, Color(0, 0, 0, 0.6))
 				_overlay.draw_circle(c + s, 1.9, TRAFFIC_DOT)
 
+	# Echo points, and the next checkpoint during an echo race (both pinned to the rim when off the map).
+	var pulse := 0.75 + 0.25 * sin(Time.get_ticks_msec() * 0.006)
+	for p in echo_points:
+		_draw_echo_marker(c, r, _to_screen(Vector2(p.x, p.z), pos, axes, r), Color(ECHO_COLOR, pulse), 7.0)
+	if echo_target_active:
+		_draw_echo_marker(c, r, _to_screen(Vector2(echo_target.x, echo_target.z), pos, axes, r), ECHO_TARGET_COLOR, 8.0)
+
 	# Rim.
 	_overlay.draw_arc(c, r - 1.0, 0.0, TAU, 96, RIM, 2.0, true)
 
@@ -285,3 +297,16 @@ func _draw_overlay() -> void:
 	outline.append(arrow[0])
 	_overlay.draw_colored_polygon(arrow, PLAYER_COLOR)
 	_overlay.draw_polyline(outline, Color(1, 1, 1, 0.95), 1.6, true)
+
+
+func _draw_echo_marker(c: Vector2, r: float, s: Vector2, col: Color, size: float) -> void:
+	var edge := r - size - 3.0
+	if s.length() > edge:
+		s = s.normalized() * edge
+		size *= 0.75
+	var p := c + s
+	var diamond := PackedVector2Array([p + Vector2(0, -size), p + Vector2(size, 0), p + Vector2(0, size), p + Vector2(-size, 0)])
+	_overlay.draw_circle(p, size * 1.5, Color(col, col.a * 0.25))
+	_overlay.draw_colored_polygon(diamond, col)
+	diamond.append(diamond[0])
+	_overlay.draw_polyline(diamond, Color(1, 1, 1, 0.9), 1.4, true)
