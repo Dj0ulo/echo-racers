@@ -3,7 +3,7 @@ extends Node3D
 ## High-speed feedback attached to the ChaseCamera: wind streaks flying past the lens
 ## (GPU particles in camera space) and a full-screen overlay (edge radial blur, speed lines,
 ## vignette). Both are driven by the camera's `speed_fx` (plus a boost bump from `boost_fx`) and
-## fully hidden when slow.
+## fully hidden when slow, and whenever another camera is current (world map, echo editor).
 
 const STREAK_SHADER := preload("res://shaders/speed_streak.gdshader")
 const OVERLAY_SHADER := preload("res://shaders/speed_overlay.gdshader")
@@ -28,7 +28,11 @@ var _intensity := 0.0
 
 func _ready() -> void:
 	_camera = get_parent() as ChaseCamera
+	# Keeps running while paused (the echo editor pauses the game) to hide itself when its camera is not
+	# current; the streak particles themselves still pause.
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	_build_streaks()
+	_streaks.process_mode = Node.PROCESS_MODE_PAUSABLE
 	if overlay_enabled:
 		_build_overlay()
 	_apply(0.0, 0.0)
@@ -43,6 +47,10 @@ func set_hidden(hidden: bool) -> void:
 
 func _process(delta: float) -> void:
 	if _camera == null or _camera.get_target() == null:
+		return
+	if visible != _camera.current:
+		set_hidden(not _camera.current)
+	if not visible or get_tree().paused:
 		return
 	var target := _camera.get_target()
 	# Extra smoothing so effects never pop on/off with small speed changes.

@@ -36,7 +36,6 @@ var _ground := 0.0
 var _bounds := Rect2()
 var _fog_was := false
 var _clouds: Node3D
-var _speed_fx: SpeedEffects
 var _mouse_down := false
 var _dragged := false
 var _press_pos := Vector2.ZERO
@@ -75,8 +74,6 @@ func setup(world: WorldGenerator, car: CarController, hud: Hud, env: Environment
 				box = box.expand(Vector2(p.x, p.z))
 	_bounds = box.grow(500.0)
 	_clouds = world.find_child("Clouds", true, false) as Node3D
-	var scene := world.get_parent()
-	_speed_fx = scene.find_child("SpeedEffects", true, false) as SpeedEffects if scene else null
 
 
 func is_open() -> bool:
@@ -96,8 +93,6 @@ func open() -> void:
 		_env.fog_enabled = false
 	if _clouds:
 		_clouds.visible = false
-	if _speed_fx:
-		_speed_fx.set_hidden(true)
 	_hud.visible = false
 	echo.ui.visible = false
 	_look = Vector2(_car.global_position.x, _car.global_position.z)
@@ -119,8 +114,6 @@ func close() -> void:
 		_env.fog_enabled = _fog_was
 	if _clouds:
 		_clouds.visible = true
-	if _speed_fx:
-		_speed_fx.set_hidden(false)
 	_hud.visible = true
 	echo.ui.visible = true
 	if is_instance_valid(_prev_camera):
