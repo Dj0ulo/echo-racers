@@ -11,6 +11,10 @@ extends Node
 ## A simple pure-pursuit autopilot drives along the road (with handbrake drift scenarios and a
 ## brake/reverse test), prints handling telemetry, optionally saves screenshots, then quits.
 ##
+## `--shots` images are downscaled to `--shot-width=<px>` (default 960) wide, keeping the aspect ratio.
+## `--quiet` suppresses the periodic telemetry lines (1 Hz lap, 10 Hz drift events, crash-test timelines);
+## summaries, "Saved" lines and errors are still printed.
+##
 ## `--crashtest` replaces the lap with scripted crashes against traffic on a highway straight (rear-ending a
 ## hatch and a truck, an off-centre T-bone, being T-boned, a side swipe) and prints pre/post velocities.
 ##
@@ -61,6 +65,8 @@ var _views: Array[PackedFloat32Array] = []
 var _view_cam: Camera3D
 var _view_frame := 0
 var _route := false
+var _quiet := false
+var _shot_width := 960
 
 ## Crash test scenarios (highway, carriageway with increasing distance). Distances are relative to the
 ## player's start; "lat" shifts the traffic car sideways off its lane centre; "yaw" is relative to the lane.
@@ -98,6 +104,10 @@ func _ready() -> void:
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--shots="):
 			_shots_dir = arg.trim_prefix("--shots=")
+		elif arg.begins_with("--shot-width="):
+			_shot_width = maxi(int(arg.trim_prefix("--shot-width=")), 16)
+		elif arg == "--quiet":
+			_quiet = true
 		elif arg.begins_with("--view="):
 			var spec := arg.trim_prefix("--view=")
 			if spec == "overview":
@@ -275,9 +285,10 @@ func _physics_process(delta: float) -> void:
 		_next_log += 1.0
 		var right := _car.global_basis.x
 		var slip := rad_to_deg(atan2(_car.linear_velocity.dot(right), maxf(absf(speed), 0.5)))
-		print("t=%4.1f v=%6.1f km/h off=%5.1f m slip=%6.1f deg yaw=%5.2f up.y=%.2f wheels=%d drift=%s steer=%5.2f" % [
-			_time, speed * 3.6, off_road, slip, _car.angular_velocity.y, _car.global_basis.y.y,
-			_car.grounded_wheels, _car.is_drifting, steer])
+		if not _quiet:
+			print("t=%4.1f v=%6.1f km/h off=%5.1f m slip=%6.1f deg yaw=%5.2f up.y=%.2f wheels=%d drift=%s steer=%5.2f" % [
+				_time, speed * 3.6, off_road, slip, _car.angular_velocity.y, _car.global_basis.y.y,
+				_car.grounded_wheels, _car.is_drifting, steer])
 	if _time > DURATION:
 		print("Rendering: average %.0f FPS, worst frame %.0f FPS" % [_frames / maxf(_time - 2.0, 0.001), _min_fps])
 		_end_event()
@@ -299,9 +310,17 @@ func _process(delta: float) -> void:
 	var image := get_viewport().get_texture().get_image()
 	if image:
 		var path := "%s/shot_%d.png" % [_shots_dir, _shot_index]
-		image.save_png(path)
-		print("Saved ", path)
+		_save_image(image, path)
 	_shot_index += 1
+
+
+## Downscales to `_shot_width` (aspect ratio kept, never upscaled), saves as PNG and logs the path.
+func _save_image(image: Image, path: String) -> void:
+	if image.get_width() > _shot_width:
+		image.resize(_shot_width, roundi(image.get_height() * float(_shot_width) / image.get_width()),
+				Image.INTERPOLATE_LANCZOS)
+	image.save_png(path)
+	print("Saved ", path)
 
 
 ## Saves the `--view` stills (a few frames each so the renderer settles), pausing the drive meanwhile.
@@ -331,8 +350,7 @@ func _take_views() -> bool:
 	if _view_frame % 8 == 7:
 		var image := get_viewport().get_texture().get_image()
 		var path := "%s/view_%d.png" % [_shots_dir, k]
-		image.save_png(path)
-		print("Saved ", path)
+		_save_image(image, path)
 	_view_frame += 1
 	return true
 
@@ -380,9 +398,10 @@ func _track_event(delta: float, steer: float, handbrake: bool) -> void:
 		_ev.overshoot = maxf(_ev.overshoot, absf(slip))  # Snap-back to the other side.
 	if _time >= _ev_log_next:
 		_ev_log_next += 0.1
-		print("  +%.1fs v=%6.1f slip=%6.1f yaw=%5.2f grip=%.2f drift=%s hb=%s steer=%5.2f thr=%.1f" % [
-			rel, _car.speed * 3.6, slip, yaw, _car.rear_grip_factor, _car.is_drifting, handbrake, steer,
-			_car.input.throttle])
+		if not _quiet:
+			print("  +%.1fs v=%6.1f slip=%6.1f yaw=%5.2f grip=%.2f drift=%s hb=%s steer=%5.2f thr=%.1f" % [
+				rel, _car.speed * 3.6, slip, yaw, _car.rear_grip_factor, _car.is_drifting, handbrake, steer,
+				_car.input.throttle])
 
 
 func _end_event() -> void:
@@ -509,7 +528,7 @@ func _crash_test_step(delta: float) -> void:
 		_ct_stats.max_yaw = maxf(_ct_stats.max_yaw, absf(_car.angular_velocity.y))
 		_ct_stats.car_max_yaw = maxf(_ct_stats.car_max_yaw, absf(_ct_car.get_yaw_rate()))
 		var rel := _ct_time - _ct_hit_time
-		if rel < 1.5 and fmod(rel + 1e-4, 0.25) < delta:
+		if not _quiet and rel < 1.5 and fmod(rel + 1e-4, 0.25) < delta:
 			print("  +%.2fs player %5.1f km/h yaw %5.2f | %s %5.1f km/h yaw %5.2f state=%s" % [
 				rel, _car.linear_velocity.length() * 3.6, _car.angular_velocity.y,
 				TrafficCarMesh.Kind.keys()[_ct_car.kind], _ct_car.get_velocity().length() * 3.6,
