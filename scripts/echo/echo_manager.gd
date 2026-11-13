@@ -248,6 +248,7 @@ func save_new_echo() -> void:
 
 func _begin_countdown() -> void:
 	_car.reset_to(_start)
+	_car.refill_boost()
 	_car.freeze = true
 	_camera.snap()
 	state = State.COUNTDOWN
@@ -367,8 +368,14 @@ func _on_editor_finished(track: EchoTrack) -> void:
 		_update_minimap_points()
 		ui.toast("%s saved — its neon beacon now marks the start on the map" % track.name, 5.0)
 	_menu_paused = true
-	_close_menu()
 	_camera.snap()
+	if track and not track.runs.is_empty():
+		_open_menu(track.name.to_upper() + " SAVED", "Race its first echo now?", [
+			{"text": "Race the new echo", "action": race_echo.bind(track, track.runs[0])},
+			{"text": "Keep driving", "action": _close_menu},
+		])
+	else:
+		_close_menu()
 
 
 func _next_name() -> String:
@@ -445,6 +452,8 @@ func _open_result_menu() -> void:
 	var items: Array[Dictionary] = []
 	if _won and not _saved:
 		items.append({"text": "Save as a new echo", "action": save_new_echo})
+	if _saved:
+		items.append({"text": "Race the new echo", "action": race_echo.bind(_track, _run)})
 	items.append_array([
 		{"text": "Race the same echo again", "action": restart},
 		{"text": "Exit race mode", "action": exit_race},

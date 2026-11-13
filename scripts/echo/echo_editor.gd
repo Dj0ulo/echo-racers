@@ -15,6 +15,8 @@ signal finished(track: EchoTrack)  ## null when discarded.
 @export var extreme_window := 150.0     ## Metres either side a point must beat to count as a local extreme.
 @export var extreme_prominence_xz := 20.0
 @export var extreme_prominence_y := 4.0
+@export var cursor_min_scale := 1.6     ## Ghost-car cursor scale when zoomed in.
+@export var cursor_max_scale := 6.0     ## Cap when zoomed out (it grows with the square root of the distance).
 
 var run: EchoRun
 var style := EchoTrack.Style.RINGS
@@ -377,7 +379,7 @@ func _build_ribbon() -> void:
 func _update_cursor() -> void:
 	var t := _cursor / EchoRun.RATE
 	_ghost.show_at(t)
-	var cam_scale := clampf(_dist / 90.0, 1.6, 24.0)
+	var cam_scale := clampf(cursor_min_scale * sqrt(_dist / 90.0), cursor_min_scale, cursor_max_scale)
 	_ghost.scale = Vector3.ONE * cam_scale
 	var i := roundi(_cursor)
 	var speed := 0.0

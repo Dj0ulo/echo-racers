@@ -159,6 +159,13 @@ func reset_to(xform: Transform3D) -> void:
 	reset_physics_interpolation()
 
 
+## Fills the boost gauge instantly (e.g. at the start of an echo race).
+func refill_boost() -> void:
+	boost_amount = 1.0
+	boost_cooldown_left = 0.0
+	_boost_locked = false
+
+
 func get_speed_kmh() -> float:
 	return absf(speed) * 3.6
 
