@@ -26,11 +26,23 @@ __NV_PRIME_RENDER_OFFLOAD=1 __VK_LAYER_NV_optimus=NVIDIA_only __GLX_VENDOR_LIBRA
 | Steer | A, D / Left, Right | Left stick |
 | Handbrake (drift) | Space | X / Square |
 | Boost (nitro) | Shift | A / Cross |
-| Reset car to road (in an echo race: last checkpoint) | R | Back / Select |
+| Reset car to road (in an echo race: last checkpoint) | R | B / Circle |
+| Map / GPS destination | M | Back / Select |
 | Echo race menu | Tab | Y / Triangle |
 | Look around (springs back on release) | — | Right stick (±90°) |
 | Look back (hold) | C | Right stick down |
 | Pause (Q quits while paused) | Esc | Start |
+
+## Map and GPS
+
+Press **Select** (M) at any time (except in the echo editor) to pause and open a full-screen top-down map, north
+up. Pan with the left stick / WASD / arrows / mouse drag and zoom with LT/RT / Q E / mouse wheel (or right stick).
+**A** (Enter) puts a destination under the crosshair, or click a spot; **X** (F, Delete) clears it; **B** / Select
+/ Esc closes the map. The destination gets a gold light beam in the world and a gold pin on both maps, and the
+route along the road network (A* on a graph of the roads that respects one-way ramps and the highway carriageways,
+rerouted every 0.8 s) is drawn on both maps and as a glowing gold filament floating ahead of the car. The filament
+and the minimap route are hidden during echo races, recording and the editor. Reaching the destination clears it.
+Code: `scripts/game/world_map.gd`, `gps.gd` (filament, beacon), `road_graph.gd` (route finding).
 
 ## Echo races
 
@@ -46,13 +58,15 @@ recorded. Press Y whenever you want and **End the race & place checkpoints**: a 
 - **Style** toggles between neon rings (glowing circle on the ground with a light cylinder) and light gates
   (two neon pillars with sparks).
 - **Save echo** (or **Discard run**). The course gets a neon blue beacon at its start, also shown on the minimap
-  (pinned to the rim when far away).
+  (pinned to the rim when far away), and a menu offers to race its first echo right away.
 
 Drive into a beacon and press Y to see its echoes, best first, and pick the one to race: 3-2-1-GO, then pass every
 checkpoint in order (the next one pulses; it is also the pink marker on the minimap) against a hologram ghost of the
 echo. The HUD shows the time and your split against the echo at each checkpoint. During a race Y offers restart
 from the start or exit; reset puts you back on the last checkpoint passed. Beat the echo and you can save your run
-as a new echo of that course (older ones are kept). Courses are saved in `user://echoes/` (one `.echo` file each,
+as a new echo of that course (older ones are kept), then race that new echo straight away. Every race (and restart)
+starts with a full boost gauge. The editor's ghost-car cursor grows with the zoom only up to a cap
+(`EchoEditor.cursor_max_scale`). Courses are saved in `user://echoes/` (one `.echo` file each,
 `~/.local/share/godot/app_userdata/<project>/echoes/` on Linux).
 
 Code: `scripts/echo/` — `echo_manager.gd` (game flow, menus, recording at 30 Hz, checkpoint crossing),
@@ -120,3 +134,7 @@ drives through several roads in turn (here: exit the highway, cross the bridge, 
 `--autodrive --echotest [--shots=/abs/dir]` runs the echo mode end to end through simulated menu presses: records a
 14 s run, places checkpoints on its extremes in the editor, saves it, races its ghost (following its line a bit
 faster), prints the splits and result, saves the new echo, then deletes the scratch course (`user://echoes_test`).
+`--autodrive --maptest [--shots=/abs/dir]` opens the world map through its input action, sets a destination 450 m
+ahead (shots `map.png`, then `filament.png` after closing the map), then routes to the middle of every road and
+prints route vs straight-line distances. Real gamepad buttons are ignored during it (Godot reads joypads even
+unfocused; add `--audio-driver Dummy` before `--` to keep test runs silent while someone plays).

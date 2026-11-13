@@ -48,7 +48,7 @@ func _ready() -> void:
 
 	_hint_label = _make_label(18)
 	_hint_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT, Control.PRESET_MODE_KEEP_SIZE, 24)
-	_hint_label.text = "W/S  throttle / brake-reverse\nA/D  steer\nSpace  handbrake (drift)\nShift  boost\nR  reset car\nTab  echo race menu\nEsc  pause"
+	_hint_label.text = "W/S  throttle / brake-reverse\nA/D  steer\nSpace  handbrake (drift)\nShift  boost\nR  reset car\nTab  echo race menu\nM  map / GPS destination\nEsc  pause"
 
 	_pause_panel = ColorRect.new()
 	(_pause_panel as ColorRect).color = Color(0.05, 0.07, 0.1, 0.45)

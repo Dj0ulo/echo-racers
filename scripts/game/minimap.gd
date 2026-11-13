@@ -52,6 +52,9 @@ var traffic: Node
 var echo_points := PackedVector3Array()  ## Echo course starts (neon diamonds, pinned to the rim when far).
 var echo_target := Vector3.ZERO          ## Next checkpoint of the echo race...
 var echo_target_active := false          ## ...shown while this is set.
+var destination := Vector3.ZERO          ## GPS destination (gold pin, pinned to the rim when far)...
+var destination_active := false          ## ...shown while this is set.
+var route := PackedVector3Array()        ## GPS route drawn as a gold line (empty = none).
 
 var _map: ColorRect
 var _overlay: Control
@@ -271,6 +274,12 @@ func _draw_overlay() -> void:
 				_overlay.draw_circle(c + s, 2.6, Color(0, 0, 0, 0.6))
 				_overlay.draw_circle(c + s, 1.9, TRAFFIC_DOT)
 
+	# GPS route, then its destination.
+	if route.size() >= 2:
+		_draw_route(c, r, pos, axes)
+	if destination_active:
+		_draw_pin(c, r, _to_screen(Vector2(destination.x, destination.z), pos, axes, r))
+
 	# Echo points, and the next checkpoint during an echo race (both pinned to the rim when off the map).
 	var pulse := 0.75 + 0.25 * sin(Time.get_ticks_msec() * 0.006)
 	for p in echo_points:
@@ -310,3 +319,37 @@ func _draw_echo_marker(c: Vector2, r: float, s: Vector2, col: Color, size: float
 	_overlay.draw_colored_polygon(diamond, col)
 	diamond.append(diamond[0])
 	_overlay.draw_polyline(diamond, Color(1, 1, 1, 0.9), 1.4, true)
+
+
+## The route as a cased gold polyline, split where it leaves the circle.
+func _draw_route(c: Vector2, r: float, pos: Vector2, axes: Array[Vector2]) -> void:
+	var limit := r - 3.0
+	var run := PackedVector2Array()
+	var step := maxi(1, route.size() / 400)
+	for i in range(0, route.size(), step):
+		var s := _to_screen(Vector2(route[i].x, route[i].z), pos, axes, r)
+		if s.length() < limit:
+			run.append(c + s)
+		elif run.size() >= 2:
+			_overlay.draw_polyline(run, Color(0.1, 0.07, 0.0, 0.8), 6.0, true)
+			_overlay.draw_polyline(run, Gps.COLOR, 3.2, true)
+			run.clear()
+		else:
+			run.clear()
+	if run.size() >= 2:
+		_overlay.draw_polyline(run, Color(0.1, 0.07, 0.0, 0.8), 6.0, true)
+		_overlay.draw_polyline(run, Gps.COLOR, 3.2, true)
+
+
+## Gold destination pin; shrunk and pinned to the rim when off the map.
+func _draw_pin(c: Vector2, r: float, s: Vector2) -> void:
+	var size := 7.0
+	var edge := r - size - 4.0
+	if s.length() > edge:
+		s = s.normalized() * edge
+		size *= 0.8
+	var p := c + s
+	_overlay.draw_circle(p, size * 1.7, Color(Gps.COLOR, 0.25))
+	_overlay.draw_circle(p, size + 1.5, Color(0.1, 0.07, 0.0, 0.9))
+	_overlay.draw_circle(p, size, Gps.COLOR)
+	_overlay.draw_circle(p, size * 0.38, Color(1, 1, 1, 0.95))

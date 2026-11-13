@@ -3,6 +3,7 @@ extends Node3D
 
 const AUTODRIVE_SCRIPT := "res://scripts/debug/autodrive.gd"
 const ECHO_TEST_SCRIPT := "res://scripts/debug/echo_test.gd"
+const MAP_TEST_SCRIPT := "res://scripts/debug/map_test.gd"
 
 @onready var world: WorldGenerator = $World
 @onready var car: CarController = $Car
@@ -10,6 +11,8 @@ const ECHO_TEST_SCRIPT := "res://scripts/debug/echo_test.gd"
 @onready var hud: Hud = $HUD
 
 var echo: EchoManager
+var gps: Gps
+var world_map: WorldMap
 
 
 func _ready() -> void:
@@ -23,7 +26,16 @@ func _ready() -> void:
 	echo = EchoManager.new()
 	echo.name = "Echo"
 	add_child(echo)
-	echo.setup(world, car, chase_camera, hud, ($WorldEnvironment as WorldEnvironment).environment)
+	var env := ($WorldEnvironment as WorldEnvironment).environment
+	echo.setup(world, car, chase_camera, hud, env)
+	gps = Gps.new()
+	gps.name = "Gps"
+	add_child(gps)
+	gps.setup(world, car, hud.get_minimap(), echo)
+	world_map = WorldMap.new()
+	world_map.name = "WorldMap"
+	add_child(world_map)
+	world_map.setup(world, car, hud, env, gps, echo)
 	# Debug: `godot -- --autodrive` drives a scripted test lap and prints telemetry.
 	if "--autodrive" in OS.get_cmdline_user_args():
 		var autodrive: Node = load(AUTODRIVE_SCRIPT).new()
@@ -33,6 +45,10 @@ func _ready() -> void:
 			var test: Node = load(ECHO_TEST_SCRIPT).new()
 			test.name = "EchoTest"
 			add_child(test)
+		if "--maptest" in OS.get_cmdline_user_args():
+			var map_test: Node = load(MAP_TEST_SCRIPT).new()
+			map_test.name = "MapTest"
+			add_child(map_test)
 
 
 func _unhandled_input(event: InputEvent) -> void:

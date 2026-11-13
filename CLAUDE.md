@@ -9,6 +9,9 @@ tabs, typed GDScript, `##` doc comment at the top of each script.
 - `scripts/game/main.gd` entry point: spawns the car on the road, pause/quit, resets.
 - `scripts/game/hud.gd` (Hud) speedometer, boost gauge, FPS, controls hint, pause overlay.
 - `scripts/game/minimap.gd` (Minimap) heading-up circular minimap, terrain+roads rendered once, shader rotates.
+- `scripts/game/world_map.gd` (WorldMap) Select/M full-screen top-down map: pan, zoom, set the GPS destination.
+- `scripts/game/gps.gd` (Gps) destination beacon, route on the minimap, gold filament ahead of the car (free roam only).
+- `scripts/game/road_graph.gd` (RoadGraph) AStar3D graph of the road network (one-way ramps, carriageways).
 - `scripts/vehicle/car_controller.gd` (CarController) RigidBody3D, raycast suspension, arcade tyre physics, exported tunables.
 - `scripts/vehicle/vehicle_input.gd` (VehicleInput) input actions to normalized commands (AI can drive too).
 - `scripts/vehicle/car_visuals.gd` (CarVisuals) procedural body, wheels, lights, tyre smoke; never affects physics.
@@ -37,6 +40,7 @@ tabs, typed GDScript, `##` doc comment at the top of each script.
 - `scripts/echo/echo_track.gd` (EchoTrack) saved course + its echoes (user://echoes); `echo_run.gd` (EchoRun) one recording.
 - `scripts/echo/checkpoint_gate.gd`, `ghost_car.gd`, `echo_point.gd` (beacon), `neon.gd` (glow shaders/materials).
 - `scripts/debug/echo_test.gd` `--autodrive --echotest`: whole echo flow end to end (scratch save folder).
+- `scripts/debug/map_test.gd` `--autodrive --maptest`: world map + GPS route/filament, routes to every road.
 - `scripts/debug/autodrive.gd` autopilot lap, drift scenarios, `--crashtest`, screenshots (flags in its header).
 - `shaders/` road.gdshader (markings), grass.gdshader (sway), speed_overlay.gdshader, speed_streak.gdshader.
 

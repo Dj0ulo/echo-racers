@@ -34,6 +34,13 @@ func _ready() -> void:
 	_apply(0.0, 0.0)
 
 
+## Hides the streaks and the screen overlay (e.g. while the world map has its own camera).
+func set_hidden(hidden: bool) -> void:
+	visible = not hidden
+	if _overlay_layer:
+		_overlay_layer.visible = not hidden
+
+
 func _process(delta: float) -> void:
 	if _camera == null or _camera.get_target() == null:
 		return
