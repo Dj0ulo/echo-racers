@@ -82,7 +82,7 @@ Code: `scripts/echo/` — `echo_manager.gd` (game flow, menus, recording at 30 H
 Time flows from 10:00 at startup: 10 real minutes of daylight (06:00-18:00) then 10 of night (`DayNight.day_minutes`,
 `night_minutes`). The sun rises in the east, culminates in the south and sets in the west; sunrise and sunset paint a
 warm glow along the horizon and light the clouds from below, then a blue-purple twilight gives way to a starry sky
-and a cool full-moon light. The car's headlights come on at dusk. The world map and the echo editor always show the
+and a cool full-moon light. The car's headlights come on at dusk, and so do the traffic's (glowing lenses plus a light pool on the road). The world map and the echo editor always show the
 world in daylight. Colours per sun elevation live in the `_KEYS` table of `scripts/world/day_night.gd`, which also
 owns the sky shader.
 

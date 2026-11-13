@@ -80,6 +80,20 @@ func setup(car_kind: int, paint: Color) -> void:
 	tail.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	tail.visibility_range_end = 600.0
 	add_child(tail)
+	var lenses := MeshInstance3D.new()
+	lenses.name = "HeadLights"
+	lenses.mesh = meshes[2]
+	lenses.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	lenses.visibility_range_end = 900.0
+	add_child(lenses)
+	var pool := MeshInstance3D.new()
+	pool.name = "HeadlightPool"
+	pool.mesh = TrafficCarMesh.pool_mesh(kind)
+	pool.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	pool.visibility_range_end = 300.0
+	pool.visible = TrafficCarMesh.headlights > 0.01
+	pool.add_to_group(TrafficCarMesh.HEADLIGHT_GROUP)
+	add_child(pool)
 
 	var box := BoxShape3D.new()
 	box.size = Vector3(width, height - 0.25, length)

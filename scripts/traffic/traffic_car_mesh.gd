@@ -1,8 +1,9 @@
 class_name TrafficCarMesh
 extends RefCounted
 ## Lightweight procedural low-poly cars for traffic. Forward is -Z, origin on the ground between the axles.
-## Everything except the tail lights is baked into one vertex-coloured mesh (wheels, glass, headlights),
-## so a traffic car costs two draw calls.
+## Everything except the lights is baked into one vertex-coloured mesh (wheels, glass, bumpers).
+## Tail lights have a per-car material (braking); headlight lenses and the additive light pool they throw on
+## the road share one material each, driven for the whole fleet by `set_headlights()` (DayNight).
 
 enum Kind { SEDAN, HATCH, VAN, PICKUP, TRUCK }
 
@@ -28,7 +29,26 @@ const SPECS := {
 	Kind.TRUCK: [7.6, 2.4, 0.46, 3.2],
 }
 
+## Group of the per-car headlight pool nodes (hidden in daylight).
+const HEADLIGHT_GROUP := &"traffic_headlights"
+const POOL_LENGTH := 16.0  ## Metres of road lit ahead of the bumper.
+
+const _POOL_CODE := """
+shader_type spatial;
+render_mode unshaded, blend_add, cull_disabled, depth_draw_never, shadows_disabled;
+uniform float intensity = 0.0;
+void fragment() {
+	float across = 1.0 - abs(UV.x * 2.0 - 1.0);
+	float along = smoothstep(0.0, 0.12, UV.y) * pow(1.0 - UV.y, 1.6);
+	ALBEDO = vec3(1.0, 0.86, 0.6) * intensity * 0.55 * along * smoothstep(0.0, 0.6, across);
+}
+"""
+
 static var _tail_base: StandardMaterial3D
+static var _lens_material: StandardMaterial3D
+static var _pool_material: ShaderMaterial
+static var _pool_mesh := {}  ## kind -> ArrayMesh
+static var headlights := 0.0  ## 0 (day) .. 1 (night), see set_headlights().
 
 
 static func length_of(kind: int) -> float:
@@ -43,7 +63,8 @@ static func height_of(kind: int) -> float:
 	return SPECS[kind][3]
 
 
-## Returns [body mesh, tail-light mesh]. The tail-light mesh has no material (set one per car for braking).
+## Returns [body mesh, tail-light mesh, headlight-lens mesh]. The tail-light mesh has no material (set one
+## per car for braking); the lens mesh uses `lens_material()`.
 static func build(kind: int, paint: Color) -> Array:
 	var spec: Array = SPECS[kind]
 	var length: float = spec[0]
@@ -53,6 +74,7 @@ static func build(kind: int, paint: Color) -> Array:
 	var hw := width * 0.5
 	var body := MeshBuilder.new()
 	var tail := MeshBuilder.new()
+	var head := MeshBuilder.new()
 	var outer := [Vector3(-hw, 0.95, 0.8), Vector3(-hw + 0.08, 1.0, 1.0), Vector3(hw - 0.08, 1.0, 1.0), Vector3(hw, 0.95, 0.8)]
 	var inner := [Vector3(-hw + 0.1, 0.92, 0.9), Vector3(-hw + 0.17, 1.0, 1.0), Vector3(hw - 0.17, 1.0, 1.0), Vector3(hw - 0.1, 0.92, 0.9)]
 	var lights_y := 0.72
@@ -92,7 +114,7 @@ static func build(kind: int, paint: Color) -> Array:
 	body.add_box(Vector3(0, 0.36, -hl + 0.02), Vector3(width - 0.2, 0.14, 0.1), TRIM)
 	body.add_box(Vector3(0, 0.36, hl - 0.02), Vector3(width - 0.2, 0.14, 0.1), TRIM)
 	for xs in [-1.0, 1.0]:
-		body.add_box(Vector3(xs * (hw - 0.3), lights_y - 0.1, -hl - 0.01), Vector3(0.36, 0.12, 0.06), HEADLIGHT)
+		head.add_box(Vector3(xs * (hw - 0.3), lights_y - 0.1, -hl - 0.01), Vector3(0.36, 0.12, 0.06), HEADLIGHT)
 		tail.add_box(Vector3(xs * (hw - 0.28), lights_y, hl + 0.01), Vector3(0.34, 0.12, 0.06), Color.WHITE)
 	var axle := hl - 0.8 if kind != Kind.TRUCK else hl - 1.1
 	var axis := Basis(Vector3.BACK, PI * 0.5)
@@ -101,7 +123,61 @@ static func build(kind: int, paint: Color) -> Array:
 			var c := Vector3(xs * (hw - 0.14), radius, z)
 			body.add_primitive(SceneryMeshes.cylinder(radius, radius, 0.26, 8), Transform3D(axis, c), TYRE)
 			body.add_primitive(SceneryMeshes.cylinder(radius * 0.55, radius * 0.55, 0.27, 6), Transform3D(axis, c), RIM)
-	return [body.commit(Palette.vertex_material(0.5)), tail.commit()]
+	return [body.commit(Palette.vertex_material(0.5)), tail.commit(), head.commit(lens_material())]
+
+
+## Shared emissive material of every traffic car's headlight lenses.
+static func lens_material() -> StandardMaterial3D:
+	if _lens_material == null:
+		_lens_material = StandardMaterial3D.new()
+		_lens_material.vertex_color_use_as_albedo = true
+		_lens_material.emission_enabled = true
+		_lens_material.emission = Color(1.0, 0.95, 0.8)
+		_set_lens_energy()
+	return _lens_material
+
+
+## Flat trapezoid of additive light on the ground ahead of a car of this kind (shared material).
+static func pool_mesh(kind: int) -> ArrayMesh:
+	if _pool_mesh.has(kind):
+		return _pool_mesh[kind]
+	var spec: Array = SPECS[kind]
+	var hl: float = spec[0] * 0.5
+	var hw: float = spec[1] * 0.5
+	var z0 := -hl - 0.2
+	var z1 := z0 - POOL_LENGTH
+	var verts := PackedVector3Array([Vector3(-hw, 0.06, z0), Vector3(hw, 0.06, z0),
+		Vector3(-hw - 2.2, 0.06, z1), Vector3(hw + 2.2, 0.06, z1)])
+	var uvs := PackedVector2Array([Vector2(0, 0), Vector2(1, 0), Vector2(0, 1), Vector2(1, 1)])
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_INDEX] = PackedInt32Array([0, 1, 2, 1, 3, 2])
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	if _pool_material == null:
+		var shader := Shader.new()
+		shader.code = _POOL_CODE
+		_pool_material = ShaderMaterial.new()
+		_pool_material.shader = shader
+		_pool_material.set_shader_parameter(&"intensity", headlights)
+	mesh.surface_set_material(0, _pool_material)
+	_pool_mesh[kind] = mesh
+	return mesh
+
+
+## Headlights of the whole traffic fleet: 0 = day .. 1 = full night.
+static func set_headlights(v: float) -> void:
+	headlights = clampf(v, 0.0, 1.0)
+	_set_lens_energy()
+	if _pool_material:
+		_pool_material.set_shader_parameter(&"intensity", headlights)
+
+
+static func _set_lens_energy() -> void:
+	if _lens_material:
+		_lens_material.emission_energy_multiplier = 0.15 + headlights * 5.0
 
 
 static func tail_material() -> StandardMaterial3D:

@@ -196,8 +196,12 @@ func _apply(h: float) -> void:
 		_clouds.emission = Color(0.55, 0.6, 0.68).lerp(hor * 0.9, warm * 0.8)
 		_clouds.emission_energy_multiplier = c
 		_clouds.albedo_color = Color.WHITE * clampf(c / 0.6, 0.15, 1.0)
+	var lights := smoothstep(0.08, -0.04, s)
 	if _car_visuals:
-		_car_visuals.headlights = smoothstep(0.08, -0.04, s)
+		_car_visuals.headlights = lights
+	if (lights > 0.01) != (TrafficCarMesh.headlights > 0.01):
+		get_tree().call_group(TrafficCarMesh.HEADLIGHT_GROUP, &"set_visible", lights > 0.01)
+	TrafficCarMesh.set_headlights(lights)
 
 
 func _sample(s: float) -> Dictionary:
