@@ -43,7 +43,8 @@ route (rerouted every 0.8 s) is drawn on both maps and as a glowing gold filamen
 ~7 m above the ground, loosely following the route and cutting its bends. The route always starts at the car: it
 follows the road network (A* on a graph of the roads that respects one-way ramps and the highway carriageways) but
 crosses the fields to join it, to leave it, or skips it entirely whenever that is shorter (off-road metres count
-1.6x, `offroad_cost`). The filament and the minimap route are hidden during echo races, recording and the editor. Reaching the destination clears it.
+1.6x, `offroad_cost`). The filament and the minimap route are hidden during echo races, recording and the editor,
+as are the destination beacon and the echo beacons (only the checkpoints show). Reaching the destination clears it.
 Code: `scripts/game/world_map.gd`, `gps.gd` (filament, beacon), `road_graph.gd` (route finding).
 
 ## Echo races

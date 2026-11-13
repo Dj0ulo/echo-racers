@@ -25,6 +25,7 @@ var _minimap: Minimap
 var _points_root: Node3D
 var _race_root: Node3D
 var _points := {}                 ## EchoTrack.id -> EchoPoint
+var _points_shown := true
 var _gates: Array[CheckpointGate] = []
 var _ghost: GhostCar
 var _track: EchoTrack             ## Course being raced (null while recording a new one).
@@ -135,6 +136,13 @@ func _process(_delta: float) -> void:
 		ui.set_timer(EchoRun.format_time(_time), EchoUi.TEXT)
 	elif state == State.RACING:
 		ui.set_timer(EchoRun.format_time(_time), EchoUi.TEXT)
+	# Echo beacons (3D and minimap) only in free roam: races, recording and the editor show just checkpoints.
+	var free := state == State.FREE
+	if free != _points_shown:
+		_points_shown = free
+		for p: EchoPoint in _points.values():
+			p.visible = free
+		_minimap.show_markers = free
 	var has_target := state in [State.COUNTDOWN, State.RACING] and _track != null and _next_cp < _track.checkpoints.size()
 	_minimap.echo_target_active = has_target
 	if has_target:
@@ -194,8 +202,6 @@ func race_echo(track: EchoTrack, echo: EchoRun) -> void:
 	_race_root.add_child(_ghost)
 	_ghost.build_from(_car)
 	_ghost.run = echo
-	if _points.has(track.id):
-		(_points[track.id] as EchoPoint).visible = false
 	_begin_countdown()
 
 
@@ -350,8 +356,6 @@ func _clear_race() -> void:
 		c.queue_free()
 	_gates.clear()
 	_ghost = null
-	for p: EchoPoint in _points.values():
-		p.visible = true
 	_minimap.echo_target_active = false
 
 

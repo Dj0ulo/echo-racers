@@ -55,6 +55,7 @@ var echo_target_active := false          ## ...shown while this is set.
 var destination := Vector3.ZERO          ## GPS destination (gold pin, pinned to the rim when far)...
 var destination_active := false          ## ...shown while this is set.
 var route := PackedVector3Array()        ## GPS route drawn as a gold line (empty = none).
+var show_markers := true                 ## Echo points and the GPS pin (hidden during echo races).
 
 var _map: ColorRect
 var _overlay: Control
@@ -277,12 +278,12 @@ func _draw_overlay() -> void:
 	# GPS route, then its destination.
 	if route.size() >= 2:
 		_draw_route(c, r, pos, axes)
-	if destination_active:
+	if destination_active and show_markers:
 		_draw_pin(c, r, _to_screen(Vector2(destination.x, destination.z), pos, axes, r))
 
 	# Echo points, and the next checkpoint during an echo race (both pinned to the rim when off the map).
 	var pulse := 0.75 + 0.25 * sin(Time.get_ticks_msec() * 0.006)
-	for p in echo_points:
+	for p in (echo_points if show_markers else PackedVector3Array()):
 		_draw_echo_marker(c, r, _to_screen(Vector2(p.x, p.z), pos, axes, r), Color(ECHO_COLOR, pulse), 7.0)
 	if echo_target_active:
 		_draw_echo_marker(c, r, _to_screen(Vector2(echo_target.x, echo_target.z), pos, axes, r), ECHO_TARGET_COLOR, 8.0)

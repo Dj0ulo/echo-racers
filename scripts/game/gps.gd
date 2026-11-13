@@ -173,6 +173,7 @@ func _process(delta: float) -> void:
 	_reroute -= delta
 	if _reroute <= 0.0:
 		reroute()
+	_beacon.visible = free
 	_minimap.route = route if free else PackedVector3Array()
 	_filament.visible = free and route.size() >= 2
 	if _filament.visible:
