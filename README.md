@@ -60,8 +60,9 @@ recorded. Press Y whenever you want and **End the race & place checkpoints**: a 
   bends) and y (crests and dips). **Set the finish here** trims the run. Start and finish are always checkpoints.
 - **Style** toggles between neon rings (glowing circle on the ground with a light cylinder) and light gates
   (two neon pillars with sparks).
-- **Save echo** (or **Discard run**). The course gets a neon blue beacon at its start, also shown on the minimap
-  (pinned to the rim when far away), and a menu offers to race its first echo right away.
+- **Save & race this echo** or **Save & leave race mode**. The course gets a neon blue beacon at its start, also
+  shown on the minimap (pinned to the rim when far away); the first choice starts racing its echo right away.
+  **Discard run** asks whether to record again from the same start or leave race mode.
 
 Drive into a beacon and press Y to see its echoes, best first, and pick the one to race: 3-2-1-GO, then pass every
 checkpoint in order (the next one pulses; it is also the pink marker on the minimap) against a hologram ghost of the

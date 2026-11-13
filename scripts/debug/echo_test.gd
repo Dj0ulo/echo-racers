@@ -60,13 +60,13 @@ func _process(delta: float) -> void:
 		6:
 			_shot("echo_editor_gates.png")
 			_echo._editor.toggle_style()
-			_echo._editor.save()
+			_echo._editor.save(true)  # "Save & race this echo".
 			_next(0.5)
 		7:
 			var t: EchoTrack = _echo.tracks.back()
 			print("Echo test: saved '%s', %d checkpoints, %.0f m, echo %s" % [t.name, t.checkpoints.size(), t.length,
 				EchoRun.format_time(t.best_time())])
-			_echo.race_echo(t, t.runs[0])
+			print("Echo test: racing the new echo = %s" % (_echo.state == EchoManager.State.COUNTDOWN and _echo._track == t))
 			var autodrive := get_parent().get_node_or_null(^"Autodrive")
 			if autodrive:
 				autodrive.set_physics_process(false)

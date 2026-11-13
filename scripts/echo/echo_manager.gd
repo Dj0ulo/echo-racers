@@ -359,27 +359,28 @@ func _clear_race() -> void:
 	_minimap.echo_target_active = false
 
 
-func _on_editor_finished(track: EchoTrack) -> void:
+func _on_editor_finished(track: EchoTrack, race: bool) -> void:
 	_editor = null
 	_hud.visible = true
 	state = State.FREE
 	_car.freeze = false
+	_menu_paused = true
 	if track:
 		track.name = _next_name()
 		tracks.append(track)
 		track.save()
 		_add_point(track)
 		_update_minimap_points()
-		ui.toast("%s saved — its neon beacon now marks the start on the map" % track.name, 5.0)
-	_menu_paused = true
-	_camera.snap()
-	if track and not track.runs.is_empty():
-		_open_menu(track.name.to_upper() + " SAVED", "Race its first echo now?", [
-			{"text": "Race the new echo", "action": race_echo.bind(track, track.runs[0])},
-			{"text": "Keep driving", "action": _close_menu},
-		])
+	if track and race and not track.runs.is_empty():
+		race_echo(track, track.runs[0])
+		ui.toast("%s saved — race your echo!" % track.name, 4.0)
+	elif race:
+		restart()  # Discarded: record again from the same start.
 	else:
 		_close_menu()
+		_camera.snap()
+		if track:
+			ui.toast("%s saved — its neon beacon now marks the start on the map" % track.name, 5.0)
 
 
 func _next_name() -> String:
