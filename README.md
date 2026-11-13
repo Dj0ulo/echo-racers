@@ -40,7 +40,7 @@ up. Pan with the left stick / WASD / arrows / mouse drag and zoom with LT/RT / Q
 **A** (Enter) puts a destination under the crosshair, or click a spot; **X** (F, Delete) clears it; **B** / Select
 / Esc closes the map. The destination gets a gold light beam in the world and a gold pin on both maps, and the
 route (rerouted every 0.8 s) is drawn on both maps and as a glowing gold filament that rises from the car and flies
-~7 m above the ground, loosely following the route and cutting its bends. The route always starts at the car: it
+~11 m above the ground (starting just above the car roof), loosely following the route and cutting its bends. The route always starts at the car: it
 follows the road network (A* on a graph of the roads that respects one-way ramps and the highway carriageways) but
 crosses the fields to join it, to leave it, or skips it entirely whenever that is shorter (off-road metres count
 1.6x, `offroad_cost`). The filament and the minimap route are hidden during echo races, recording and the editor,

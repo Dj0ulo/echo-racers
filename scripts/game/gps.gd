@@ -25,8 +25,8 @@ void fragment() {
 }
 """
 
-@export var filament_lift := 7.0       ## Cruising height above the ground (m), well above the chase camera.
-@export var filament_start_lift := 1.4 ## Height at the car, where it starts (m).
+@export var filament_lift := 11.0      ## Cruising height above the ground (m), well above the chase camera.
+@export var filament_start_lift := 3.2 ## Height at the car where it starts (m): just above the roof.
 @export var filament_rise := 35.0      ## Metres over which it climbs from the car to `filament_lift`.
 @export var filament_width := 1.0      ## Half-width of its glow (m); the bright core is a fraction of it.
 @export var filament_length := 300.0   ## Metres of route drawn ahead of the car.
