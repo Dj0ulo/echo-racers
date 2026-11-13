@@ -6,7 +6,7 @@ extends Camera3D
 ## Exposes `speed_fx` (0..1, ramps in above `fx_start_speed_kmh`) and `boost_fx` (0..1, smoothed
 ## nitro state) for SpeedEffects. Boosting widens the FOV and pulls the camera back a little.
 ## Free look: the right stick orbits the camera up to ±90° around the car (plus a little pitch) and
-## springs back behind it on release; holding the stick down (or `look_back`) shows the rear view
+## springs back behind it on release; holding `look_back` (LB / C) shows the rear view
 ## from in front of the car. `view_alignment` tells SpeedEffects how much the view faces the road ahead.
 
 @export var target_path: NodePath
@@ -44,11 +44,10 @@ extends Camera3D
 
 @export_group("Free Look")
 @export var look_max_yaw_deg := 90.0        ## Stick pans at most this far either side of straight behind.
-@export var look_max_pitch_up_deg := 14.0   ## Camera rises this much with the stick held down (below the look-back threshold).
+@export var look_max_pitch_up_deg := 14.0   ## Camera rises this much with the stick held down.
 @export var look_max_pitch_down_deg := 6.0  ## Camera lowers this much with the stick pushed up.
 @export var look_follow_speed := 9.0        ## Smoothing toward the stick's target angle.
 @export var look_return_speed := 5.0        ## Spring-back speed once the stick is released.
-@export var look_back_threshold := 0.7      ## Stick-down strength that switches to the rear view.
 @export var look_back_distance := 5.2       ## Distance in front of the car for the rear view.
 
 ## 0..1 high-speed intensity (smoothstep between fx_start and fx_full), read by SpeedEffects.
@@ -179,12 +178,11 @@ func _process(delta: float) -> void:
 
 
 ## Right stick: smoothed orbit yaw/pitch with deadzone (from the action deadzones), spring-back on
-## release; stick held down past the threshold (or the `look_back` key) cuts to the rear view.
+## release. The `look_back` action (LB / C) cuts to the rear view.
 func _update_free_look(delta: float) -> void:
 	var x := Input.get_axis(&"camera_left", &"camera_right")
 	var y := Input.get_axis(&"camera_up", &"camera_down")  # + = stick pulled toward the player.
-	looking_back = Input.is_action_pressed(&"look_back") \
-		or (y > look_back_threshold and y > absf(x))
+	looking_back = Input.is_action_pressed(&"look_back")
 	if looking_back:
 		# Hard cut like a rear-view button; free look resumes from straight behind on release.
 		_look_yaw = 0.0

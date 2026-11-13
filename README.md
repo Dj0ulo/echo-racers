@@ -30,7 +30,7 @@ __NV_PRIME_RENDER_OFFLOAD=1 __VK_LAYER_NV_optimus=NVIDIA_only __GLX_VENDOR_LIBRA
 | Map / GPS destination | M | Back / Select |
 | Echo race menu | Tab | Y / Triangle |
 | Look around (springs back on release) | — | Right stick (±90°) |
-| Look back (hold) | C | Right stick down |
+| Look back (hold) | C | LB |
 | Pause (Q quits while paused) | Esc | Start |
 
 ## Map and GPS
