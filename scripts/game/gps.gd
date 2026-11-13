@@ -1,8 +1,11 @@
 class_name Gps
 extends Node3D
 ## Destination and route guidance. A destination set on the WorldMap gets a gold light beam in the world and a
-## marker on the minimaps; the route along the road network (RoadGraph, rerouted every `reroute_interval`)
-## is drawn on the minimap and as a glowing filament floating ahead of the car, flowing toward the
+## marker on the minimaps. The route (rerouted every `reroute_interval`) always starts at the car: it crosses
+## the fields to the road network (RoadGraph) where that pays off, follows it, and leaves it again across
+## country when the destination is off-road, or skips the roads entirely when going straight is shorter
+## (off-road metres cost `offroad_cost`). It is drawn on the minimap and as a glowing filament that rises
+## from the car into the sky and flies loosely above the route (smoothed, cutting the bends) toward the
 ## destination. The filament and minimap route are hidden outside free roam (echo races, recording, editor).
 
 const COLOR := Color(1.0, 0.72, 0.22)
@@ -22,18 +25,21 @@ void fragment() {
 }
 """
 
-@export var filament_lift := 0.85      ## Height above the road (m); keep it well under the chase camera.
-@export var filament_width := 0.8      ## Half-width of its glow (m); the bright core is a fraction of it.
-@export var filament_start := 6.0      ## Metres ahead of the car where it begins (fades in).
-@export var filament_length := 240.0   ## Metres of route drawn ahead of the car.
-@export var filament_wave := 0.12      ## Amplitude of its slow vertical wave (m).
+@export var filament_lift := 7.0       ## Cruising height above the ground (m), well above the chase camera.
+@export var filament_start_lift := 1.4 ## Height at the car, where it starts (m).
+@export var filament_rise := 35.0      ## Metres over which it climbs from the car to `filament_lift`.
+@export var filament_width := 1.0      ## Half-width of its glow (m); the bright core is a fraction of it.
+@export var filament_length := 300.0   ## Metres of route drawn ahead of the car.
+@export var filament_smooth := 12      ## Half-window (in 2 m samples) of the smoothing that cuts the road's bends.
+@export var filament_wave := 0.35      ## Amplitude of its slow vertical wave (m).
+@export var offroad_cost := 1.6        ## An off-road metre costs this many road metres when choosing the route.
 @export var arrive_radius := 28.0      ## Destination reached within this horizontal distance (m).
 @export var reroute_interval := 0.8    ## Seconds between route updates while driving.
 @export var beam_height := 220.0
 
 var has_destination := false
 var destination := Vector3.ZERO
-var route := PackedVector3Array()          ## Route points on the road (unlifted), car side first.
+var route := PackedVector3Array()          ## Route points on the ground (unlifted), from the car.
 var route_length := 0.0                    ## Metres along `route`.
 
 var _car: CarController
@@ -99,20 +105,59 @@ func reroute() -> void:
 	_reroute = reroute_interval
 	if not has_destination:
 		return
-	var nodes := _graph.find_route(_car.global_position, -_car.global_basis.z, destination)
-	route = PackedVector3Array()
-	if nodes.is_empty():
-		route.append(_car.global_position)
+	var car_pos := _car.global_position
+	var road := _graph.find_route(car_pos, -_car.global_basis.z, destination)
+	if road.size() >= 2:
+		road = _smooth(road)
+	# Pick where to join (i) and leave (j) the road route: minimise off-road legs (weighted) + road between.
+	var dist := PackedFloat32Array()
+	dist.resize(road.size())
+	for k in range(1, road.size()):
+		dist[k] = dist[k - 1] + road[k - 1].distance_to(road[k])
+	var best := offroad_cost * _flat(car_pos, destination)
+	var bi := -1
+	var bj := -1
+	var join_best := INF
+	var join_i := -1
+	for k in road.size():
+		var join := offroad_cost * _flat(car_pos, road[k]) - dist[k]
+		if join < join_best:
+			join_best = join
+			join_i = k
+		var total := join_best + dist[k] + offroad_cost * _flat(road[k], destination)
+		if total < best - 1.0:
+			best = total
+			bi = join_i
+			bj = k
+	route = PackedVector3Array([car_pos])
+	if bi < 0:
+		_append_offroad(destination)
 	else:
-		route = _smooth(nodes)
-	var end := route[route.size() - 1]
-	if Vector2(end.x - destination.x, end.z - destination.z).length() > 12.0:
-		route.append(destination)  # Off-road destination: last leg straight across the fields.
+		_append_offroad(road[bi])
+		for k in range(bi + 1, bj + 1):
+			route.append(road[k])
+		_append_offroad(destination)
 	_route_dist = PackedFloat32Array([0.0])
 	for i in range(1, route.size()):
 		_route_dist.append(_route_dist[i - 1] + route[i - 1].distance_to(route[i]))
 	route_length = _route_dist[_route_dist.size() - 1]
 	_near_i = 0
+
+
+func _flat(a: Vector3, b: Vector3) -> float:
+	return Vector2(a.x - b.x, a.z - b.z).length()
+
+
+## Straight leg across country from the last route point to `p`, following the terrain every ~8 m.
+func _append_offroad(p: Vector3) -> void:
+	var a := route[route.size() - 1]
+	var n := int(_flat(a, p) / 8.0)
+	for k in range(1, n):
+		var q := a.lerp(p, float(k) / n)
+		q.y = maxf(_world.terrain.get_height(q.x, q.z), minf(a.y, p.y))
+		route.append(q)
+	if _flat(a, p) > 0.5:
+		route.append(p)
 
 
 func _process(delta: float) -> void:
@@ -160,45 +205,65 @@ func _build_filament() -> void:
 		if d < best_d:
 			best_d = d
 			_near_i = i
-	var s0 := _route_dist[_near_i] + filament_start
-	var s1 := minf(s0 + filament_length, route_length)
-	if s1 - s0 < 2.0:
-		return
-	var cam := get_viewport().get_camera_3d()
-	var eye := cam.global_position if cam else car_pos + Vector3.UP * 5.0
-	var t := Time.get_ticks_msec() * 0.001
-	var centre := PackedVector3Array()
-	var along := PackedFloat32Array()
-	var s := s0
+	# Ground line: the car itself, then the route from just past the nearest point, every 2 m.
+	var ground := PackedVector3Array([car_pos])
+	var s := _route_dist[_near_i] + 3.0
+	var s1 := minf(s + filament_length, route_length)
 	var i := _near_i
-	while true:
+	while s < s1:
 		while i < route.size() - 2 and _route_dist[i + 1] < s:
 			i += 1
 		var seg := maxf(_route_dist[i + 1] - _route_dist[i], 0.001)
-		var p := route[i].lerp(route[i + 1], clampf((s - _route_dist[i]) / seg, 0.0, 1.0))
-		p.y += filament_lift + filament_wave * sin(s * 0.09 - t * 2.2)
-		centre.append(p)
-		along.append(s)
-		if s >= s1:
-			break
-		s = minf(s + 2.0, s1)
-	if centre.size() < 2:
+		ground.append(route[i].lerp(route[i + 1], clampf((s - _route_dist[i]) / seg, 0.0, 1.0)))
+		s += 2.0
+	ground.append(route[route.size() - 1] if s1 >= route_length - 0.5 else _sample(s1))
+	var n := ground.size()
+	if n < 3:
 		return
+	# Merge from the car into the route (other lane, off to the side) over `filament_rise` metres.
+	var offset := car_pos - ground[1]
+	offset.y = 0.0
+	for k in range(1, n):
+		ground[k] += offset * (1.0 - smoothstep(0.0, filament_rise, 2.0 * k))
+	# Smooth (window shrinking at both ends so it still starts at the car and ends on the route), then lift.
+	var t := Time.get_ticks_msec() * 0.001
+	var centre := PackedVector3Array()
+	var along := PackedFloat32Array()
+	var a := 0.0
+	for k in n:
+		var w := mini(filament_smooth, mini(k, n - 1 - k))
+		var sum := Vector3.ZERO
+		var top := -INF
+		for m in range(k - w, k + w + 1):
+			sum += ground[m]
+			top = maxf(top, ground[m].y)
+		var p := sum / (2 * w + 1)
+		p.y = maxf(p.y, top - 2.0)
+		if k > 0:
+			a += Vector2(p.x - centre[k - 1].x, p.z - centre[k - 1].z).length()
+		var rise := smoothstep(0.0, filament_rise, a)
+		p.y += lerpf(filament_start_lift, filament_lift + filament_wave * sin(a * 0.06 - t * 1.6), rise)
+		centre.append(p)
+		along.append(a)
+	var total := along[n - 1]
+	var to_end := s1 >= route_length - 0.5
+	var u0 := _route_dist[_near_i]  # Pulses keep flowing along the route, not with the car.
+	var cam := get_viewport().get_camera_3d()
+	var eye := cam.global_position if cam else car_pos + Vector3.UP * 5.0
 	var verts := PackedVector3Array()
 	var uvs := PackedVector2Array()
 	var cols := PackedColorArray()
-	var n := centre.size()
 	for k in n:
 		var p := centre[k]
 		var tangent := (centre[mini(k + 1, n - 1)] - centre[maxi(k - 1, 0)]).normalized()
 		var side := tangent.cross(eye - p).normalized() * filament_width
-		var a := along[k]
-		var fade := smoothstep(s0, s0 + 12.0, a) * (1.0 - smoothstep(s1 - 50.0, s1, a))
-		if s1 >= route_length - 0.5:
-			fade = smoothstep(s0, s0 + 12.0, a)  # Runs all the way to the destination.
+		var u := along[k]
+		var fade := smoothstep(0.0, 10.0, u) * 0.85 + 0.15 * smoothstep(0.0, 2.0, u)
+		if not to_end:
+			fade *= 1.0 - smoothstep(total - 60.0, total, u)
 		var col := Color(1, 1, 1, fade)
 		verts.append_array([p - side, p + side])
-		uvs.append_array([Vector2(a, 0.0), Vector2(a, 1.0)])
+		uvs.append_array([Vector2(u0 + u, 0.0), Vector2(u0 + u, 1.0)])
 		cols.append_array([col, col])
 	var idx := PackedInt32Array()
 	for k in n - 1:
@@ -211,6 +276,12 @@ func _build_filament() -> void:
 	arrays[Mesh.ARRAY_COLOR] = cols
 	arrays[Mesh.ARRAY_INDEX] = idx
 	_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+
+
+func _sample(s: float) -> Vector3:
+	var i := clampi(_route_dist.bsearch(s) - 1, 0, route.size() - 2)
+	var seg := maxf(_route_dist[i + 1] - _route_dist[i], 0.001)
+	return route[i].lerp(route[i + 1], clampf((s - _route_dist[i]) / seg, 0.0, 1.0))
 
 
 func _build_beacon() -> Node3D:
