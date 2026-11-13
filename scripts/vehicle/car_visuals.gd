@@ -1,6 +1,7 @@
 class_name CarVisuals
 extends Node3D
-## Procedural low-poly sports car body, animated wheels, brake lights, headlights (night) and tyre smoke.
+## Procedural low-poly sports car body, animated wheels, brake lights, headlights (night), tyre smoke and
+## nitro flames from the twin exhausts while boosting.
 ## Reads state from the parent CarController; never affects physics.
 
 @export var paint_color := Color(0.96, 0.36, 0.09)
@@ -8,6 +9,32 @@ extends Node3D
 @export var smoke_slip_threshold := 3.0  ## Lateral slip (m/s) above which tyres smoke.
 @export var max_visual_spin := 45.0      ## Caps wheel spin (rad/s) to avoid strobing.
 @export var headlight_energy := 6.0      ## Energy of each headlight spot at full night.
+@export var nitro_length := 2.2          ## Flame length (m) at full boost.
+@export var nitro_light_energy := 2.5    ## Blue glow thrown on the road behind the car.
+
+const EXHAUST_X := 0.42
+const EXHAUST_Y := -0.13
+const EXHAUST_Z := 2.27
+
+const _FLAME_CODE := """
+shader_type spatial;
+render_mode unshaded, blend_add, cull_disabled, depth_draw_never, shadows_disabled, fog_disabled;
+uniform float intensity = 0.0;
+uniform vec3 inner : source_color = vec3(0.85, 0.92, 1.0);
+uniform vec3 outer : source_color = vec3(0.15, 0.35, 1.0);
+uniform vec3 tip : source_color = vec3(0.7, 0.2, 1.0);
+uniform float energy = 4.0;
+void fragment() {
+	float along = clamp(1.0 - UV.y, 0.0, 1.0);  // 0 at the pipe, 1 at the tip.
+	float edge = pow(clamp(abs(dot(NORMAL, VIEW)), 0.0, 1.0), 1.3);
+	float flicker = 0.8 + 0.2 * sin(TIME * 63.0 + along * 18.0) * sin(TIME * 41.0);
+	// Shock diamonds: bright bands travelling down the flame.
+	float bands = 0.75 + 0.25 * smoothstep(0.4, 1.0, sin(along * 22.0 - TIME * 40.0));
+	vec3 col = mix(inner, outer, smoothstep(0.0, 0.35, along));
+	col = mix(col, tip, smoothstep(0.45, 1.0, along));
+	ALBEDO = col * energy * intensity * edge * flicker * bands * (1.0 - smoothstep(0.55, 1.0, along));
+}
+"""
 
 var _car: CarController
 var _wheel_pivots: Array[Node3D] = []
@@ -17,6 +44,11 @@ var _smoke_materials: Array[ParticleProcessMaterial] = []
 var _tail_material: StandardMaterial3D
 var _head_material: StandardMaterial3D
 var _headlights: Array[SpotLight3D] = []
+var _flames: Array[MeshInstance3D] = []
+var _flame_material: ShaderMaterial
+var _nitro_light: OmniLight3D
+var _nitro_sparks: GPUParticles3D
+var _nitro := 0.0  ## Smoothed 0..1 flame strength.
 
 ## 0 = off (day) .. 1 = full headlights (night); set by DayNight.
 var headlights := 0.0:
@@ -37,6 +69,7 @@ func _ready() -> void:
 	_build_wheels()
 	_build_smoke()
 	_build_headlights()
+	_build_nitro()
 
 
 func _physics_process(delta: float) -> void:
@@ -60,6 +93,98 @@ func _physics_process(delta: float) -> void:
 		_smoke_materials[k].color = Color(0.92, 0.92, 0.92) if w.surface == &"road" else Color(0.62, 0.53, 0.40)
 
 	_tail_material.emission_energy_multiplier = (4.0 if _car.is_braking else 1.2) + headlights * 1.5
+	_update_nitro(delta)
+
+
+## Twin exhaust flames (additive cones with shock diamonds), a blue glow and sparks while boosting.
+func _build_nitro() -> void:
+	var shader := Shader.new()
+	shader.code = _FLAME_CODE
+	_flame_material = ShaderMaterial.new()
+	_flame_material.shader = shader
+	for xs in [-1.0, 1.0]:
+		for layer in 2:  # Wide blue outer flame, then a short white-hot core.
+			var cone := CylinderMesh.new()
+			cone.top_radius = 0.0
+			cone.bottom_radius = 0.15 if layer == 0 else 0.07
+			cone.height = 1.0
+			cone.radial_segments = 10
+			cone.rings = 1
+			cone.cap_top = false
+			cone.cap_bottom = false
+			var mi := MeshInstance3D.new()
+			mi.mesh = cone
+			mi.material_override = _flame_material
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			mi.set_meta(&"core", layer == 1)
+			mi.position = Vector3(xs * EXHAUST_X, EXHAUST_Y, EXHAUST_Z)
+			mi.visible = false
+			add_child(mi)
+			_flames.append(mi)
+	_nitro_light = OmniLight3D.new()
+	_nitro_light.light_color = Color(0.35, 0.55, 1.0)
+	_nitro_light.omni_range = 5.0
+	_nitro_light.omni_attenuation = 1.6
+	_nitro_light.position = Vector3(0, 0.1, EXHAUST_Z + 0.8)
+	_nitro_light.visible = false
+	add_child(_nitro_light)
+
+	_nitro_sparks = GPUParticles3D.new()
+	_nitro_sparks.amount = 40
+	_nitro_sparks.lifetime = 0.22
+	_nitro_sparks.emitting = false
+	_nitro_sparks.local_coords = false
+	_nitro_sparks.position = Vector3(0, EXHAUST_Y, EXHAUST_Z + 0.1)
+	var pm := ParticleProcessMaterial.new()
+	pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	pm.emission_box_extents = Vector3(EXHAUST_X, 0.03, 0.05)
+	pm.direction = Vector3(0, 0.15, 1)
+	pm.spread = 14.0
+	pm.initial_velocity_min = 6.0
+	pm.initial_velocity_max = 12.0
+	pm.gravity = Vector3(0, -4.0, 0)
+	pm.scale_min = 0.5
+	pm.scale_max = 1.0
+	var fade := Gradient.new()
+	fade.set_color(0, Color(0.8, 0.9, 1.0, 1.0))
+	fade.set_color(1, Color(0.3, 0.3, 1.0, 0.0))
+	var ramp := GradientTexture1D.new()
+	ramp.gradient = fade
+	pm.color_ramp = ramp
+	_nitro_sparks.process_material = pm
+	var spark := QuadMesh.new()
+	spark.size = Vector2(0.03, 0.03)
+	var spark_mat := StandardMaterial3D.new()
+	spark_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	spark_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	spark_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	spark_mat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	spark_mat.vertex_color_use_as_albedo = true
+	spark_mat.albedo_color = Color(2.0, 2.0, 2.0)
+	spark.material = spark_mat
+	_nitro_sparks.draw_pass_1 = spark
+	add_child(_nitro_sparks)
+
+
+func _update_nitro(delta: float) -> void:
+	var target := 1.0 if _car.is_boosting else 0.0
+	_nitro = move_toward(_nitro, target, delta * (8.0 if target > _nitro else 4.0))
+	var on := _nitro > 0.01
+	_nitro_light.visible = on
+	_nitro_sparks.emitting = _car.is_boosting
+	for mi in _flames:
+		mi.visible = on
+	if not on:
+		return
+	_flame_material.set_shader_parameter(&"intensity", _nitro)
+	_nitro_light.light_energy = nitro_light_energy * _nitro * randf_range(0.75, 1.0)
+	for mi in _flames:
+		var core: bool = mi.get_meta(&"core")
+		var length := nitro_length * _nitro * randf_range(0.8, 1.1) * (0.45 if core else 1.0)
+		var width := lerpf(0.6, 1.0, _nitro)
+		# Cylinder axis (+Y) rotated onto +Z (backwards), stretched to the flame length.
+		mi.basis = Basis(Vector3.RIGHT, PI * 0.5) * Basis.from_scale(Vector3(width, length, width))
+		mi.position.z = EXHAUST_Z + length * 0.5
 
 
 ## Two headlight spots (no shadows), only visible when `headlights` > 0.
@@ -125,6 +250,8 @@ func _build_body() -> void:
 	# Trim: splitter, diffuser, side skirts, grille, mirrors
 	trim.add_box(Vector3(0, -0.22, -2.1), Vector3(1.55, 0.06, 0.3), trim_color)
 	trim.add_box(Vector3(0, -0.12, 2.2), Vector3(1.3, 0.16, 0.12), trim_color)
+	for xs in [-1.0, 1.0]:
+		trim.add_box(Vector3(xs * EXHAUST_X, EXHAUST_Y, EXHAUST_Z - 0.04), Vector3(0.14, 0.11, 0.12), Color(0.32, 0.32, 0.34))
 	trim.add_box(Vector3(0, 0.0, -2.2), Vector3(0.9, 0.14, 0.08), trim_color)
 	for xs in [-1.0, 1.0]:
 		trim.add_box(Vector3(xs * 0.8, -0.2, 0.03), Vector3(0.08, 0.1, 1.9), trim_color)
