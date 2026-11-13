@@ -127,7 +127,7 @@ func _process(delta: float) -> void:
 			_jump(-1)
 		if Input.is_action_just_pressed(&"echo_next"):
 			_jump(1)
-	var zoom := Input.get_joy_axis(0, JOY_AXIS_TRIGGER_RIGHT) - Input.get_joy_axis(0, JOY_AXIS_TRIGGER_LEFT)
+	var zoom := VehicleInput.joy_axis(JOY_AXIS_TRIGGER_RIGHT) - VehicleInput.joy_axis(JOY_AXIS_TRIGGER_LEFT)
 	zoom += float(Input.is_physical_key_pressed(KEY_W)) - float(Input.is_physical_key_pressed(KEY_S))
 	_zoom = clampf(_zoom + zoom * delta * 0.7, 0.0, 1.0)
 	_update_cursor()

@@ -22,6 +22,17 @@ func update_input() -> void:
 	boost = Input.is_action_pressed(&"boost")
 
 
+## Reads a joypad axis from every connected pad and returns the strongest value, so a second
+## controller (e.g. a Bluetooth pad on a Steam Deck, whose built-in controls are device 0) works too.
+static func joy_axis(axis: JoyAxis) -> float:
+	var best := 0.0
+	for device in Input.get_connected_joypads():
+		var v := Input.get_joy_axis(device, axis)
+		if absf(v) > absf(best):
+			best = v
+	return best
+
+
 func clear() -> void:
 	throttle = 0.0
 	brake = 0.0

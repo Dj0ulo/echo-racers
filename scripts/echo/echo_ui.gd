@@ -115,9 +115,9 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if _menu_panel.visible:
 		var dir := 0
-		if Input.is_action_pressed(&"ui_down") or Input.get_joy_axis(0, JOY_AXIS_LEFT_Y) > 0.6:
+		if Input.is_action_pressed(&"ui_down") or VehicleInput.joy_axis(JOY_AXIS_LEFT_Y) > 0.6:
 			dir = 1
-		elif Input.is_action_pressed(&"ui_up") or Input.get_joy_axis(0, JOY_AXIS_LEFT_Y) < -0.6:
+		elif Input.is_action_pressed(&"ui_up") or VehicleInput.joy_axis(JOY_AXIS_LEFT_Y) < -0.6:
 			dir = -1
 		if dir != _nav_dir:
 			_nav_dir = dir

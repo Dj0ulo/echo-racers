@@ -170,14 +170,14 @@ func _input(event: InputEvent) -> void:
 func _process(delta: float) -> void:
 	if not _open:
 		return
-	var pan := Vector2(Input.get_joy_axis(0, JOY_AXIS_LEFT_X), Input.get_joy_axis(0, JOY_AXIS_LEFT_Y))
+	var pan := Vector2(VehicleInput.joy_axis(JOY_AXIS_LEFT_X), VehicleInput.joy_axis(JOY_AXIS_LEFT_Y))
 	if pan.length() < deadzone:
 		pan = Vector2.ZERO
 	pan.x += _key(KEY_D) + _key(KEY_RIGHT) - _key(KEY_A) - _key(KEY_LEFT)
 	pan.y += _key(KEY_S) + _key(KEY_DOWN) - _key(KEY_W) - _key(KEY_UP)
 	pan = pan.limit_length(1.0)
-	var zoom := Input.get_joy_axis(0, JOY_AXIS_TRIGGER_RIGHT) - Input.get_joy_axis(0, JOY_AXIS_TRIGGER_LEFT)
-	var stick_zoom := -Input.get_joy_axis(0, JOY_AXIS_RIGHT_Y)
+	var zoom := VehicleInput.joy_axis(JOY_AXIS_TRIGGER_RIGHT) - VehicleInput.joy_axis(JOY_AXIS_TRIGGER_LEFT)
+	var stick_zoom := -VehicleInput.joy_axis(JOY_AXIS_RIGHT_Y)
 	if absf(stick_zoom) > deadzone:
 		zoom += stick_zoom
 	zoom += _key(KEY_E) - _key(KEY_Q)
