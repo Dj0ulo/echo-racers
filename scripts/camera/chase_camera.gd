@@ -20,6 +20,8 @@ extends Camera3D
 @export var height_smoothing := 6.0
 @export var velocity_alignment := 0.3       ## How much the camera follows the travel direction vs. the car heading.
 @export var collision_margin := 0.35
+@export var ground_clearance := 0.9         ## Minimum height of the camera above the ground right below it (m).
+@export var max_focus_lag := 0.6            ## The smoothed focus never trails the car's height by more than this (m).
 @export_flags_3d_physics var collision_mask := 1
 
 @export_group("Speed Feel")
@@ -143,7 +145,9 @@ func _process(delta: float) -> void:
 
 	# Follow horizontally exactly, smooth vertically so bumps don't shake the view.
 	var ky := 1.0 - exp(-height_smoothing * delta)
-	_focus = Vector3(t.origin.x, lerpf(_focus.y, t.origin.y, ky), t.origin.z)
+	# Clamped so that on steep climbs the pivot never sinks into the slope.
+	var fy := clampf(lerpf(_focus.y, t.origin.y, ky), t.origin.y - max_focus_lag, t.origin.y + max_focus_lag)
+	_focus = Vector3(t.origin.x, fy, t.origin.z)
 
 	var heading := _flat_forward(t.basis, _yaw_dir)
 	var flat_vel := Vector3(vel.x, 0.0, vel.z)
@@ -218,6 +222,13 @@ func _place(speed_t: float) -> void:
 	var hit := get_world_3d().direct_space_state.intersect_ray(_ray)
 	if not hit.is_empty():
 		desired = hit.position + (pivot - desired).normalized() * collision_margin + Vector3.UP * collision_margin
+	# Keep clear of the ground under the camera (slopes rising behind the car would otherwise fill the near plane).
+	# The probe starts at pivot height so a bridge deck above the car is not mistaken for the ground.
+	_ray.from = Vector3(desired.x, maxf(pivot.y, desired.y) + 1.0, desired.z)
+	_ray.to = Vector3(desired.x, desired.y - ground_clearance - 4.0, desired.z)
+	hit = get_world_3d().direct_space_state.intersect_ray(_ray)
+	if not hit.is_empty():
+		desired.y = maxf(desired.y, (hit.position as Vector3).y + ground_clearance)
 	global_position = desired
 	var look_target := pivot + view_dir * look_ahead * speed_t
 	if not global_position.is_equal_approx(look_target):
