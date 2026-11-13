@@ -116,6 +116,7 @@ func setup(env: Environment, light: DirectionalLight3D, world: Node, car: Node, 
 		elif arg.begins_with("--timescale="):
 			time_scale = arg.trim_prefix("--timescale=").to_float()
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	_apply_light(hour)
 	_apply(hour)
 
 
@@ -126,12 +127,14 @@ func _process(delta: float) -> void:
 		var minutes := day_minutes if hour >= 6.0 and hour < 18.0 else night_minutes
 		hour = fposmod(hour + delta * time_scale * 12.0 / (maxf(minutes, 0.01) * 60.0), 24.0)
 	var day_view := get_viewport().get_camera_3d() != _chase_camera
+	var h := 13.0 if day_view else hour
+	_apply_light(h)  # Every frame: stepping the light makes long dusk shadows jump.
 	_wait -= delta
 	if _wait > 0.0 and day_view == _was_day_view:
 		return
 	_wait = update_interval
 	_was_day_view = day_view
-	_apply(13.0 if day_view else hour)
+	_apply(h)
 
 
 ## Direction toward the sun at hour `h`: rises in the east (+x), culminates in the south (+z), sets in the west.
@@ -145,11 +148,11 @@ func is_night() -> bool:
 	return sun_direction(hour).y < -0.04
 
 
-func _apply(h: float) -> void:
+## Sun/moon light direction, colour and energy (cheap: no sky radiance update).
+func _apply_light(h: float) -> void:
 	var sun := sun_direction(h)
 	var moon := -sun
 	var s := sun.y
-	var k := _sample(s)
 	# One light: the sun until it is just below the horizon, then the moon (opposite it, so just rising).
 	var swap := -0.04
 	var dir := sun if s > swap else moon
@@ -163,6 +166,14 @@ func _apply(h: float) -> void:
 		var up := Vector3.UP if absf(dir.y) < 0.99 else Vector3.FORWARD
 		_light.global_basis = Basis.looking_at(-dir, up)
 
+
+## Sky, fog, ambient, clouds and headlights (throttled: each change re-renders the sky radiance).
+func _apply(h: float) -> void:
+	var sun := sun_direction(h)
+	var moon := -sun
+	var s := sun.y
+	var k := _sample(s)
+	var warm := smoothstep(0.3, 0.0, s)
 	var hor: Color = k.hor
 	_sky.set_shader_parameter(&"top_color", k.top)
 	_sky.set_shader_parameter(&"horizon_color", hor)
