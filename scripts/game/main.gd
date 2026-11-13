@@ -32,6 +32,10 @@ func _ready() -> void:
 	gps.name = "Gps"
 	add_child(gps)
 	gps.setup(world, car, hud.get_minimap(), echo)
+	var day_night := DayNight.new()
+	day_night.name = "DayNight"
+	add_child(day_night)
+	day_night.setup(env, $Sun as DirectionalLight3D, world, car, chase_camera)
 	world_map = WorldMap.new()
 	world_map.name = "WorldMap"
 	add_child(world_map)

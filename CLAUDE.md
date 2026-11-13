@@ -34,6 +34,7 @@ tabs, typed GDScript, `##` doc comment at the top of each script.
 - `scripts/world/mesh_builder.gd` (MeshBuilder) flat-shaded vertex-coloured triangle accumulator -> ArrayMesh.
 - `scripts/world/collider_batch.gd` (ColliderBatch) thousands of static colliders straight into PhysicsServer.
 - `scripts/world/palette.gd` (Palette) shared colours and materials.
+- `scripts/world/day_night.gd` (DayNight) 10 min day / 10 min night: sun/moon light, sky shader, fog, headlights.
 - `scripts/echo/echo_manager.gd` (EchoManager) echo race flow: Y menu, record, race ghosts, checkpoints, saves.
 - `scripts/echo/echo_editor.gd` (EchoEditor) top-view run review: scrub, place checkpoints, style, save/discard.
 - `scripts/echo/echo_ui.gd` (EchoUi) side menu, race timer/splits, countdown, prompts, beeps.

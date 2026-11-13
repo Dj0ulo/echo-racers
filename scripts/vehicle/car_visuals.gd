@@ -1,12 +1,13 @@
 class_name CarVisuals
 extends Node3D
-## Procedural low-poly sports car body, animated wheels, brake lights and tyre smoke.
+## Procedural low-poly sports car body, animated wheels, brake lights, headlights (night) and tyre smoke.
 ## Reads state from the parent CarController; never affects physics.
 
 @export var paint_color := Color(0.96, 0.36, 0.09)
 @export var trim_color := Color(0.09, 0.09, 0.10)
 @export var smoke_slip_threshold := 3.0  ## Lateral slip (m/s) above which tyres smoke.
 @export var max_visual_spin := 45.0      ## Caps wheel spin (rad/s) to avoid strobing.
+@export var headlight_energy := 6.0      ## Energy of each headlight spot at full night.
 
 var _car: CarController
 var _wheel_pivots: Array[Node3D] = []
@@ -14,6 +15,14 @@ var _wheel_spinners: Array[Node3D] = []
 var _smoke: Array[GPUParticles3D] = []
 var _smoke_materials: Array[ParticleProcessMaterial] = []
 var _tail_material: StandardMaterial3D
+var _head_material: StandardMaterial3D
+var _headlights: Array[SpotLight3D] = []
+
+## 0 = off (day) .. 1 = full headlights (night); set by DayNight.
+var headlights := 0.0:
+	set(v):
+		headlights = clampf(v, 0.0, 1.0)
+		_apply_headlights()
 var _visual_spin: Array[float] = [0.0, 0.0, 0.0, 0.0]
 
 
@@ -27,6 +36,7 @@ func _ready() -> void:
 	_build_body()
 	_build_wheels()
 	_build_smoke()
+	_build_headlights()
 
 
 func _physics_process(delta: float) -> void:
@@ -49,7 +59,33 @@ func _physics_process(delta: float) -> void:
 		_smoke[k].position = Vector3(w.mount.x, w.mount.y - w.suspension_length - _car.wheel_radius + 0.15, w.mount.z + 0.2)
 		_smoke_materials[k].color = Color(0.92, 0.92, 0.92) if w.surface == &"road" else Color(0.62, 0.53, 0.40)
 
-	_tail_material.emission_energy_multiplier = 4.0 if _car.is_braking else 1.2
+	_tail_material.emission_energy_multiplier = (4.0 if _car.is_braking else 1.2) + headlights * 1.5
+
+
+## Two headlight spots (no shadows), only visible when `headlights` > 0.
+func _build_headlights() -> void:
+	for xs in [-1.0, 1.0]:
+		var spot := SpotLight3D.new()
+		spot.position = Vector3(xs * 0.58, 0.2, -2.2)
+		spot.rotation.x = deg_to_rad(-4.0)
+		spot.light_color = Color(1.0, 0.94, 0.82)
+		spot.spot_range = 70.0
+		spot.spot_angle = 28.0
+		spot.spot_attenuation = 0.6
+		spot.spot_angle_attenuation = 2.0
+		spot.light_specular = 0.3
+		spot.shadow_enabled = false
+		add_child(spot)
+		_headlights.append(spot)
+	_apply_headlights()
+
+
+func _apply_headlights() -> void:
+	for spot in _headlights:
+		spot.visible = headlights > 0.01
+		spot.light_energy = headlight_energy * headlights
+	if _head_material:
+		_head_material.emission_energy_multiplier = 1.5 + headlights * 4.0
 
 
 func _build_body() -> void:
@@ -112,6 +148,7 @@ func _build_body() -> void:
 	glass_mat.metallic = 0.6
 	glass_mat.roughness = 0.08
 	var head_mat := StandardMaterial3D.new()
+	_head_material = head_mat
 	head_mat.albedo_color = Color(1.0, 0.97, 0.88)
 	head_mat.emission_enabled = true
 	head_mat.emission = Color(1.0, 0.95, 0.8)

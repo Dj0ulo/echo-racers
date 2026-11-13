@@ -77,6 +77,15 @@ Code: `scripts/echo/` — `echo_manager.gd` (game flow, menus, recording at 30 H
 `echo_editor.gd` (top view), `echo_ui.gd` (side menu, timer, countdown, beeps), `echo_track.gd` / `echo_run.gd`
 (data + save files), `checkpoint_gate.gd`, `ghost_car.gd`, `echo_point.gd` (beacon) and `neon.gd` (glow shaders).
 
+## Day and night
+
+Time flows from 10:00 at startup: 10 real minutes of daylight (06:00-18:00) then 10 of night (`DayNight.day_minutes`,
+`night_minutes`). The sun rises in the east, culminates in the south and sets in the west; sunrise and sunset paint a
+warm glow along the horizon and light the clouds from below, then a blue-purple twilight gives way to a starry sky
+and a cool full-moon light. The car's headlights come on at dusk. The world map and the echo editor always show the
+world in daylight. Colours per sun elevation live in the `_KEYS` table of `scripts/world/day_night.gd`, which also
+owns the sky shader.
+
 ## Layout
 
 - `scripts/vehicle/` — `car_controller.gd` (raycast suspension + arcade tyre physics, all tunables exported),
@@ -135,6 +144,8 @@ rates and the hit car's recovery; every player crash is also logged in the other
 `--view=x,y,z,tx,ty,tz` (repeatable, with `--shots`) first saves fog-free stills from a free camera at `x,y,z`
 looking at `tx,ty,tz`; `--view=overview` shows the whole map. `--route=highway,ramp_north_off1,link_north,ramp_north_on2,highway`
 drives through several roads in turn (here: exit the highway, cross the bridge, rejoin the other carriageway).
+`--time=<hour>` (e.g. `--time=17.6` for a sunset, `--time=23` for night) sets the starting time of day and
+`--timescale=<x>` speeds the day/night cycle up (any mode, not only autodrive).
 `--autodrive --echotest [--shots=/abs/dir]` runs the echo mode end to end through simulated menu presses: records a
 14 s run, places checkpoints on its extremes in the editor, saves it, races its ghost (following its line a bit
 faster), prints the splits and result, saves the new echo, then deletes the scratch course (`user://echoes_test`).
