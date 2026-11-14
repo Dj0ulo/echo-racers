@@ -4,8 +4,8 @@ extends Node3D
 ## marker on the minimaps. The route (rerouted every `reroute_interval`) always starts at the car: it crosses
 ## the fields to the road network (RoadGraph) where that pays off, follows it, and leaves it again across
 ## country when the destination is off-road, or skips the roads entirely when going straight is shorter
-## (off-road metres cost `offroad_cost`). It is drawn on the minimap and as a glowing filament that rises
-## from the car into the sky and flies loosely above the route (smoothed, cutting the bends) toward the
+## (off-road metres cost `offroad_cost`). It is drawn on the minimap and as a glowing filament that starts
+## 15 m above the car and flies loosely above the route (smoothed, cutting the bends) toward the
 ## destination. The filament and minimap route are hidden outside free roam (echo races, recording, editor).
 
 const COLOR := Color(1.0, 0.72, 0.22)
@@ -25,9 +25,8 @@ void fragment() {
 }
 """
 
-@export var filament_lift := 11.0      ## Cruising height above the ground (m), well above the chase camera.
-@export var filament_start_lift := 3.2 ## Height at the car where it starts (m): just above the roof.
-@export var filament_rise := 35.0      ## Metres over which it climbs from the car to `filament_lift`.
+@export var filament_lift := 15.0      ## Height above the ground (m), from its very start above the car.
+@export var filament_rise := 35.0      ## Metres over which it merges sideways from the car onto the route.
 @export var filament_width := 1.0      ## Half-width of its glow (m); the bright core is a fraction of it.
 @export var filament_length := 300.0   ## Metres of route drawn ahead of the car.
 @export var filament_smooth := 12      ## Half-window (in 2 m samples) of the smoothing that cuts the road's bends.
@@ -242,8 +241,7 @@ func _build_filament() -> void:
 		p.y = maxf(p.y, top - 2.0)
 		if k > 0:
 			a += Vector2(p.x - centre[k - 1].x, p.z - centre[k - 1].z).length()
-		var rise := smoothstep(0.0, filament_rise, a)
-		p.y += lerpf(filament_start_lift, filament_lift + filament_wave * sin(a * 0.06 - t * 1.6), rise)
+		p.y += filament_lift + filament_wave * sin(a * 0.06 - t * 1.6)
 		centre.append(p)
 		along.append(a)
 	var total := along[n - 1]
