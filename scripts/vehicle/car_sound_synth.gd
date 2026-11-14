@@ -130,28 +130,47 @@ static func gravel_loop() -> AudioStreamWAV:
 	return make_wav(out, true)
 
 
-## Nitro: a rising turbo whine (integer-Hz partials, seamless over 1 s), airy hiss and a low
-## thrust roar. Pitch/volume are driven by the boost spool at runtime.
+const DRONE_LOOP := 4.0  ## Seconds; boost loop/drone tones are multiples of 1/DRONE_LOOP (seamless).
+
+
+## Nitro thrust, tuned to the drone (pitch class A, see boost_drone) so the two layers blend:
+## a roar of low noise rung through resonators on A2/E3/A3 (110/165/220 Hz), a turbine whine on
+## A4 + A5 (440/880 Hz, with a 442 Hz partner beating at 2 Hz) and a soft hiss. Loops over
+## DRONE_LOOP (every tone a multiple of 1/DRONE_LOOP); runtime pitch/volume follow the shared
+## boost envelope and pitch curve (car_audio.gd), exactly like the drone.
 static func boost_loop() -> AudioStreamWAV:
 	_rng.seed = 37
-	var n := RATE
-	var hiss := _seamless(_band_noise(n + 2000, 700.0, 5000.0), 2000)
-	var roar := _seamless(_band_noise(n + 2000, 45.0, 260.0), 2000)
-	_normalize(hiss, 1.0)
+	var fade := 4000
+	var n := int(DRONE_LOOP * RATE)
+	var body := _band_noise(n + fade, 40.0, 900.0)
+	var r_root := _resonate(body, 110.0, 14.0)
+	var r_fifth := _resonate(body, 165.0, 14.0)
+	var r_oct := _resonate(body, 220.0, 14.0)
+	_normalize(body, 1.0)
+	_normalize(r_root, 1.0)
+	_normalize(r_fifth, 1.0)
+	_normalize(r_oct, 1.0)
+	var roar_raw := PackedFloat32Array()
+	roar_raw.resize(n + fade)
+	for i in n + fade:
+		roar_raw[i] = r_root[i] + r_oct[i] * 0.7 + r_fifth[i] * 0.35 + body[i] * 0.12
+	var roar := _seamless(roar_raw, fade)
+	var hiss := _seamless(_band_noise(n + fade, 900.0, 4000.0), fade)
 	_normalize(roar, 1.0)
+	_normalize(hiss, 1.0)
 	var out := PackedFloat32Array()
 	out.resize(n)
 	for i in n:
 		var t := float(i) / RATE
-		var whine := sin(TAU * 1460.0 * t) * 0.5 + sin(TAU * 2920.0 * t + 0.7) * 0.16 \
-				+ sin(TAU * 1467.0 * t + 1.3) * 0.25  # Slight detune beats like a spinning turbine.
+		var whine := sin(TAU * 440.0 * t) * 0.5 + sin(TAU * 442.0 * t + 1.3) * 0.25 \
+				+ sin(TAU * 880.0 * t + 0.7) * 0.22 + sin(TAU * 660.0 * t + 2.1) * 0.08
 		var flutter := 0.85 + 0.15 * sin(TAU * 11.0 * t)
-		out[i] = whine * 0.35 * flutter + hiss[i] * 0.45 + roar[i] * 0.75
+		out[i] = whine * 0.3 * flutter + hiss[i] * 0.2 + roar[i] * 0.8
 	_normalize(out, 0.9)
 	return make_wav(out, true)
 
 
-## Boost kick-in: a swelling, rising noise sweep with a short low punch.
+## Boost kick-in: a swelling, rising noise sweep with a short low punch that lands on A1 (55 Hz).
 static func boost_whoosh() -> AudioStreamWAV:
 	_rng.seed = 41
 	var n := int(RATE * 0.9)
@@ -163,11 +182,11 @@ static func boost_whoosh() -> AudioStreamWAV:
 	for i in n:
 		var t := float(i) / RATE
 		var k := t / 0.9
-		var cutoff := lerpf(300.0, 4200.0, sqrt(k))
+		var cutoff := lerpf(220.0, 3000.0, sqrt(k))
 		hi += (_rng.randf_range(-1.0, 1.0) - hi) * (1.0 - exp(-TAU * cutoff / RATE))
 		lo += (hi - lo) * (1.0 - exp(-TAU * cutoff * 0.25 / RATE))
 		var env := minf(t / 0.12, 1.0) * exp(-maxf(t - 0.12, 0.0) / 0.28)
-		phase += lerpf(70.0, 40.0, minf(t / 0.25, 1.0)) / RATE
+		phase += lerpf(110.0, 55.0, minf(t / 0.25, 1.0)) / RATE
 		var punch := sin(TAU * phase) * exp(-t / 0.12) * minf(t / 0.01, 1.0)
 		out[i] = (hi - lo) * env + punch * 0.5
 	_normalize(out, 0.9)
@@ -184,32 +203,30 @@ static func blow_off() -> AudioStreamWAV:
 	var lo := 0.0
 	for i in n:
 		var t := float(i) / RATE
-		var cutoff := lerpf(6000.0, 1800.0, minf(t / 0.4, 1.0))
+		var cutoff := lerpf(4500.0, 1200.0, minf(t / 0.4, 1.0))
 		hi += (_rng.randf_range(-1.0, 1.0) - hi) * (1.0 - exp(-TAU * cutoff / RATE))
-		lo += (hi - lo) * (1.0 - exp(-TAU * 900.0 / RATE))
+		lo += (hi - lo) * (1.0 - exp(-TAU * 600.0 / RATE))
 		var env := minf(t / 0.008, 1.0) * exp(-t / 0.13)
 		out[i] = (hi - lo) * env
 	_normalize(out, 0.85)
 	return make_wav(out, false)
 
 
-const DRONE_LOOP := 4.0  ## Seconds; every frequency below is a multiple of 1/DRONE_LOOP (seamless).
-
-
-## Boost drone: a warm, sustained analog-style "hummm" on A (55 Hz) - a chorus of slightly
-## detuned round saw voices (root, octave, a quiet fifth and upper octave) over a sub sine, with a slow breathing
-## brightness sweep. Additive single-cycle tables (dark/bright, soft harmonic roll-off) scanned
-## at whole-cycle-per-loop frequencies, so the loop is seamless without any crossfade.
+## Boost drone: a warm, sustained analog-style "hummm" on A2 (110 Hz), the same root as the
+## thrust roar's resonators - a chorus of slightly detuned round saw voices (root, octave, a quiet
+## fifth and upper octave) over an A1 sub sine, with a slow breathing brightness sweep. Additive
+## single-cycle tables (dark/bright, soft harmonic roll-off) scanned at whole-cycle-per-loop
+## frequencies, so the loop is seamless without any crossfade.
 static func boost_drone() -> AudioStreamWAV:
 	var size := 1024
 	var dark := _harmonic_table(size, 6, 2.0)
-	var bright := _harmonic_table(size, 14, 1.3)
+	var bright := _harmonic_table(size, 12, 1.4)
 	# [Hz, gain]: chorus pairs beat slowly (0.25-0.5 Hz apart) for the "moving" analog feel.
 	var voices: Array[Vector2] = [
-		Vector2(54.75, 0.5), Vector2(55.25, 0.5), Vector2(55.0, 0.35),
-		Vector2(109.75, 0.42), Vector2(110.25, 0.42),
-		Vector2(82.5, 0.14), Vector2(82.75, 0.14),
-		Vector2(219.75, 0.16), Vector2(220.25, 0.16),
+		Vector2(109.75, 0.5), Vector2(110.25, 0.5), Vector2(110.0, 0.35),
+		Vector2(219.75, 0.36), Vector2(220.25, 0.36),
+		Vector2(164.75, 0.14), Vector2(165.25, 0.14),
+		Vector2(439.75, 0.08), Vector2(440.25, 0.08),
 	]
 	var n := int(DRONE_LOOP * RATE)
 	var out := PackedFloat32Array()
@@ -231,7 +248,7 @@ static func boost_drone() -> AudioStreamWAV:
 			var b := lerpf(bright[k], bright[k + 1], fr)
 			s += lerpf(d, b, mix) * voices[v].y
 			ph[v] = fmod(ph[v] + voices[v].x / RATE, 1.0)
-		s += sin(TAU * 27.5 * t) * 0.2
+		s += sin(TAU * 55.0 * t) * 0.3
 		out[i] = tanh(s * 0.9)
 	_normalize(out, 0.9)
 	return make_wav(out, true)
@@ -449,6 +466,31 @@ static func _band_noise(n: int, lo_hz: float, hi_hz: float) -> PackedFloat32Arra
 		hi += (_rng.randf_range(-1.0, 1.0) - hi) * a_hi
 		lo += (hi - lo) * a_lo
 		out[i] = hi - lo
+	return out
+
+
+## `src` through a 2-pole band-pass (RBJ, 0 dB peak) centred on `hz` with quality `q`: rings at
+## that pitch, so filtered noise takes on a tone.
+static func _resonate(src: PackedFloat32Array, hz: float, q: float) -> PackedFloat32Array:
+	var w := TAU * hz / RATE
+	var alpha := sin(w) / (2.0 * q)
+	var a0 := 1.0 + alpha
+	var b0 := alpha / a0
+	var a1 := -2.0 * cos(w) / a0
+	var a2 := (1.0 - alpha) / a0
+	var out := PackedFloat32Array()
+	out.resize(src.size())
+	var x1 := 0.0
+	var x2 := 0.0
+	var y1 := 0.0
+	var y2 := 0.0
+	for i in src.size():
+		var y := b0 * (src[i] - x2) - a1 * y1 - a2 * y2
+		x2 = x1
+		x1 = src[i]
+		y2 = y1
+		y1 = y
+		out[i] = y
 	return out
 
 

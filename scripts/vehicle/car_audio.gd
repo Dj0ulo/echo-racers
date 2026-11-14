@@ -12,9 +12,10 @@ extends Node
 ## - One-shots: suspension thumps and landings, gear-change clicks, handbrake ratchet. Body
 ##   impacts (CarController.impacted) play a light knock for taps and one of several layered crash
 ##   recordings (crunch, metal, debris, glass on the heaviest) for real hits.
-## - Boost: a nitro loop (turbo whine + hiss + thrust roar) following a spool envelope, a whoosh
-##   when it kicks in and a blow-off "pssh" when it ends, plus a warm synthwave drone that swells
-##   in with the boost, climbs in pitch while it is held and cuts out on release.
+## - Boost: two layers tuned to A (thrust roar loop: resonant roar on A2/E3/A3 + turbine whine on
+##   A4/A5; warm synthwave drone on A2) that start, swell, climb in pitch while the boost is held
+##   and fade out together, driven by ONE envelope and ONE pitch curve (`boost_*` exports). A whoosh
+##   (low punch landing on A1) marks the start and a blow-off "pssh" the release.
 ## All players go to a dedicated bus with a hard limiter so nothing clips.
 
 const Synth := preload("res://scripts/vehicle/car_sound_synth.gd")
@@ -35,19 +36,23 @@ const SHIFT_TIME := 0.16
 @export var volume_db := -4.0
 @export_range(0.0, 2.0) var engine_volume := 1.0
 @export_range(0.0, 2.0) var engine_bass := 0.8   ## Low-shelf boost (below ~170 Hz) on the engine voice.
-@export_range(0.0, 2.0) var boost_volume := 1.0
 @export_range(0.0, 2.0) var tyre_volume := 1.0
 @export_range(0.0, 2.0) var ambience_volume := 1.0
 @export_range(0.0, 2.0) var effects_volume := 1.0
 @export_range(0.0, 2.0) var crash_volume := 1.0
 @export_range(0.0, 1.0) var crash_threshold := 0.3  ## Impacts below this strength are light knocks.
-@export_range(0.0, 2.0) var boost_drone_volume := 1.0  ## Synthwave drone while boosting.
-@export var boost_drone_fade_in := 0.4   ## Seconds to swell to full level.
-@export var boost_drone_fade_out := 0.15 ## Seconds to cut out once the boost is released.
-@export var boost_drone_bend := 0.06     ## Pitch rises by this fraction while swelling in.
-@export var boost_drone_rise_semitones := 7.0  ## Pitch climbs toward this while the boost is held...
-@export var boost_drone_rise_time := 2.0       ## ...with this time constant (s).
-@export var boost_drone_release_dip := 0.08    ## Pitch drops by this fraction as it cuts out.
+@export_group("Boost")
+# Boost sound: the thrust roar loop and the drone share one envelope and one pitch curve.
+@export_range(0.0, 2.0) var boost_volume := 1.0       ## Whole boost sound (both layers + whoosh/blow-off).
+@export_range(0.0, 2.0) var boost_roar_mix := 1.0     ## Thrust roar loop (resonant roar + turbine whine).
+@export_range(0.0, 2.0) var boost_drone_mix := 1.0    ## Synthwave drone.
+@export var boost_attack := 0.35         ## Seconds for both layers to swell to full level.
+@export var boost_release := 0.3         ## Seconds for both layers to fade out once released.
+@export var boost_bend := 0.06           ## Pitch starts this fraction low and bends up during the attack.
+@export var boost_rise_semitones := 7.0  ## Pitch climbs toward this (a fifth) while the boost is held...
+@export var boost_rise_time := 2.0       ## ...with this time constant (s).
+@export var boost_release_dip := 0.08    ## Pitch drops by this fraction as it fades out.
+@export_group("")
 
 var rpm := IDLE_RPM
 var gear := 1                    ## 0 = reverse, 1..6 forward.
@@ -107,8 +112,8 @@ var _boost_start: AudioStreamPlayer
 var _crash: AudioStreamPlayer
 var _crash_heavy: AudioStreamPlayer
 var _drone: AudioStreamPlayer
-var _drone_level := 0.0  ## 0..1 envelope.
-var _drone_rise := 0.0   ## 0..1, how far the held-boost pitch climb has gone.
+var _boost_level := 0.0  ## 0..1 shared boost envelope (roar loop + drone).
+var _boost_rise := 0.0   ## 0..1, how far the held-boost pitch climb has gone.
 var _blow_off: AudioStreamPlayer
 
 # Event detection (physics rate)
@@ -122,7 +127,6 @@ var _air_time := 0.0
 var _fall_speed := 0.0
 var _handbrake_was := false
 var _boost_was := false
-var _boost_spool := 0.0         ## 0..1, rises while boosting, decays after.
 
 
 func _ready() -> void:
@@ -145,7 +149,6 @@ func _ready() -> void:
 	_wind = _make_loop(&"Wind", Synth.wind_loop())
 	_rumble = _make_loop(&"RoadRumble", Synth.rumble_loop())
 	_gravel = _make_loop(&"Gravel", Synth.gravel_loop())
-	_boost = _make_loop(&"Boost", Synth.boost_loop())
 
 	_thump = _make_player(&"Thump", Synth.thump(), 4)
 	_impact = _make_player(&"Impact", Synth.impact(), 3)
@@ -156,6 +159,7 @@ func _ready() -> void:
 	_blow_off = _make_player(&"BlowOff", Synth.blow_off(), 2)
 	_crash = _make_player(&"Crash", _randomizer([Synth.crash(0, false), Synth.crash(1, false), Synth.crash(2, false)]), 3)
 	_crash_heavy = _make_player(&"CrashHeavy", _randomizer([Synth.crash(3, true), Synth.crash(4, true)]), 2)
+	_boost = _make_player(&"Boost", Synth.boost_loop(), 1)
 	_drone = _make_player(&"BoostDrone", Synth.boost_drone(), 1)
 	_car.impacted.connect(_on_impacted)
 
@@ -478,18 +482,7 @@ func _update_loops(delta: float) -> void:
 	var rumble := road_frac * clampf(vel_len / 30.0, 0.0, 1.0)
 	_drive_loop(_rumble, rumble * 0.3 * ambience_volume, 0.65 + clampf(vel_len / 50.0, 0.0, 0.8), delta, 5.0, 5.0)
 
-	# Nitro: spool up fast, wind down a little slower.
-	var boosting := _car.is_boosting
-	_boost_spool = move_toward(_boost_spool, 1.0 if boosting else 0.0, (2.5 if boosting else 1.6) * delta)
-	var spool_gain := _boost_spool * _boost_spool * (0.55 + 0.45 * clampf(vel_len / 50.0, 0.0, 1.0))
-	_drive_loop(_boost, spool_gain * 0.34 * boost_volume, 0.7 + 0.45 * _boost_spool + 0.15 * speed_n, delta, 8.0, 4.0)
-	if boosting != _boost_was:
-		_boost_was = boosting
-		if boosting:
-			_play(_boost_start, boost_volume * 0.42, randf_range(0.95, 1.05))
-		elif _boost_spool > 0.3:
-			_play(_blow_off, boost_volume * 0.3 * _boost_spool, randf_range(0.95, 1.1))
-	_update_drone(boosting, delta)
+	_update_boost(_car.is_boosting, delta)
 
 	# Handbrake ratchet / release.
 	if inp.handbrake != _handbrake_was:
@@ -520,31 +513,49 @@ func _play(p: AudioStreamPlayer, gain: float, pitch: float) -> void:
 
 # --- Events (thumps, landings, impacts) --------------------------------------------------------
 
-## Synthwave drone: swells in (small upward bend) when the boost starts, keeps climbing in pitch
-## while it is held, and cuts out quickly with a short downward dip on release.
-func _update_drone(boosting: bool, delta: float) -> void:
+## Boost: the roar loop and the drone are started on the same frame, follow the same envelope
+## (smoothstep swell over `boost_attack`, fade over `boost_release`) and the same pitch curve
+## (bend up from `boost_bend` low during the attack, climb toward `boost_rise_semitones` while held,
+## dip by `boost_release_dip` while fading), and stop together. Being tuned to the same pitch class
+## (A), they stay in harmony at any pitch. Whoosh and blow-off are triggered on the same edges.
+func _update_boost(boosting: bool, delta: float) -> void:
+	if boosting != _boost_was:
+		_boost_was = boosting
+		if boosting:
+			if _boost_level <= 0.0:
+				_boost_rise = 0.0
+				var at := randf() * Synth.DRONE_LOOP
+				_boost.volume_db = -80.0
+				_drone.volume_db = -80.0
+				_boost.play(at)
+				_drone.play(at)
+			_play(_boost_start, boost_volume * 0.42, 1.0 - boost_bend)
+		elif _boost_level > 0.3:
+			_play(_blow_off, boost_volume * 0.3 * _boost_level, _boost_pitch(false))
 	if boosting:
-		if not _drone.playing:
-			_drone.volume_db = -80.0
-			_drone_rise = 0.0
-			_drone.play(randf() * _drone.stream.get_length())
-		_drone_rise += (1.0 - _drone_rise) * (1.0 - exp(-delta / maxf(boost_drone_rise_time, 0.01)))
-	var rate := 1.0 / maxf(boost_drone_fade_in if boosting else boost_drone_fade_out, 0.01)
-	_drone_level = move_toward(_drone_level, 1.0 if boosting else 0.0, rate * delta)
-	if _drone_level <= 0.0:
-		if _drone.playing:
+		_boost_rise += (1.0 - _boost_rise) * (1.0 - exp(-delta / maxf(boost_rise_time, 0.01)))
+	var rate := 1.0 / maxf(boost_attack if boosting else boost_release, 0.01)
+	_boost_level = move_toward(_boost_level, 1.0 if boosting else 0.0, rate * delta)
+	if _boost_level <= 0.0:
+		if _boost.playing:
+			_boost.stop()
 			_drone.stop()
 		return
-	var pitch := pow(2.0, boost_drone_rise_semitones * _drone_rise / 12.0)
-	var gain := _drone_level
-	if boosting:
-		var shaped := _drone_level * _drone_level * (3.0 - 2.0 * _drone_level)  # Smoothstep swell.
-		gain = shaped
-		pitch *= 1.0 - boost_drone_bend * (1.0 - shaped)
-	else:
-		pitch *= 1.0 - boost_drone_release_dip * (1.0 - _drone_level)
-	_drone.volume_db = linear_to_db(0.45 * boost_drone_volume * gain)
+	var gain := _boost_level * _boost_level * (3.0 - 2.0 * _boost_level)  # Smoothstep.
+	var pitch := _boost_pitch(boosting)
+	_boost.volume_db = linear_to_db(0.34 * boost_volume * boost_roar_mix * gain + 1e-6)
+	_drone.volume_db = linear_to_db(0.4 * boost_volume * boost_drone_mix * gain + 1e-6)
+	_boost.pitch_scale = pitch
 	_drone.pitch_scale = pitch
+
+
+## Shared boost pitch (both layers): held-boost climb, times the attack bend or the release dip.
+func _boost_pitch(boosting: bool) -> float:
+	var pitch := pow(2.0, boost_rise_semitones * _boost_rise / 12.0)
+	if boosting:
+		var shaped := _boost_level * _boost_level * (3.0 - 2.0 * _boost_level)
+		return pitch * (1.0 - boost_bend * (1.0 - shaped))
+	return pitch * (1.0 - boost_release_dip * (1.0 - _boost_level))
 
 
 ## Body impact (CarController.impacted): `strength` 0..1, `heaviness` 0..1 from the mass of what

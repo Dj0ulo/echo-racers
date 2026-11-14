@@ -106,8 +106,10 @@ owns the sky shader.
   (hard limiter): a real-time engine voice (firing-pulse wavetables, simulated 6-speed gearbox with shift cuts,
   downshift blips, rev limiter and overrun pops), tyre squeal/skid, wind, road rumble, off-road crunch, suspension
   thumps, gear and handbrake clicks. Light taps make a knock; real hits play one of several layered crashes
-  (chassis whump, crumpling metal, panel ring, debris, glass on the heaviest). Boosting swells in a warm synthwave
-  drone (detuned round saws on A with a slow breathing sweep) that climbs in pitch while the boost is held and cuts out on release (`boost_drone_*` exports).
+  (chassis whump, crumpling metal, panel ring, debris, glass on the heaviest). Boosting plays two layers tuned to A: a thrust roar
+  (noise rung on A2/E3/A3 + turbine whine on A4/A5) and a warm synthwave drone (detuned round saws on A2 with a slow
+  breathing sweep). One shared envelope and pitch curve drive both: they swell in together, climb a fifth while the
+  boost is held and fade out together, with a whoosh at the start and a blow-off at the release (`boost_*` exports).
   `car_sound_synth.gd` generates all the samples at startup.
 - `scripts/camera/` — `chase_camera.gd` (smoothed chase camera: speed-based FOV/pull-back/lowering, acceleration
   lag and FOV kick, subtle noise shake, trauma shake on crashes, right-stick free look and rear view) and `speed_effects.gd` (wind-streak particles + speed overlay above ~80 km/h).
