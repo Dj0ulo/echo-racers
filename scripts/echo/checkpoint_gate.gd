@@ -2,8 +2,9 @@ class_name CheckpointGate
 extends Node3D
 ## One neon checkpoint of an echo course. RINGS: a glowing circle on the ground with a translucent light
 ## cylinder rising from it. GATES: two neon light pillars either side of the racing line, with a few sparks.
-## The origin sits on the ground, -Z along the direction of travel; the car passes it by crossing the plane
-## through its centre with any part of its body within `radius` (see `crossing`).
+## The origin sits on the ground, -Z along the direction of travel. A RING is passed as soon as any part of the
+## car touches its cylinder, from any direction (`touch_fraction`); a GATE by crossing the plane through its
+## centre, going forward, with any part of the car between the pillars (`crossing`).
 
 enum Kind { CHECKPOINT, START, FINISH }
 enum State { UPCOMING, NEXT, PASSED, PREVIEW }
@@ -11,6 +12,7 @@ enum State { UPCOMING, NEXT, PASSED, PREVIEW }
 const HEIGHT := 7.0
 const AIR_REACH := 12.0  ## Hitbox top above the gate's ground point (car centre), a few metres over the light wall.
 const GROUND_REACH := 3.0  ## Hitbox bottom below the ground point (slopes, dips under the gate).
+const CAR_HALF_SIZE := Vector2(0.88, 2.15)  ## Player car footprint (half width, half length), from its body box.
 
 var radius := 9.0
 var kind := Kind.CHECKPOINT
@@ -154,13 +156,13 @@ func _add_mesh(mesh: Mesh, pos: Vector3, mat: ShaderMaterial) -> ShaderMaterial:
 	return mat
 
 
-## Fraction (0..1) along the segment a -> b where it crosses the checkpoint whose ground point is `ground`, going
+## Fraction (0..1) along the segment a -> b where it crosses the gate whose ground point is `ground`, going
 ## along `dir` within `r` of the centre, or -1 if it does not. The hitbox is a cylinder from a little below the
-## ground up to `AIR_REACH` metres above it, so a car flying over the gate still counts. `half_size` (x: half
-## width, y: half length) and `car_fwd` give the car's footprint: it counts as soon as any part of the car is
-## inside the circle, i.e. `r` grows by the footprint's extent across the crossing plane.
+## ground up to `AIR_REACH` metres above it, so a car flying over the gate still counts. `car_fwd` orients the car
+## footprint: it counts as soon as any part of the car is between the pillars, i.e. `r` grows by the footprint's
+## extent across the crossing plane.
 static func crossing(ground: Vector3, dir: Vector3, r: float, a: Vector3, b: Vector3,
-		half_size := Vector2.ZERO, car_fwd := Vector3.ZERO) -> float:
+		car_fwd := Vector3.ZERO) -> float:
 	var n := Vector3(dir.x, 0.0, dir.z)
 	if n.length_squared() < 1e-6:
 		return -1.0
@@ -177,10 +179,45 @@ static func crossing(ground: Vector3, dir: Vector3, r: float, a: Vector3, b: Vec
 		# Footprint extent along the plane: |cos| of the heading vs. the gate direction weighs the half width,
 		# |sin| the half length (a car crossing at an angle sweeps a wider band).
 		var c := absf(f.normalized().dot(Vector2(n.x, n.z)))
-		r += half_size.x * c + half_size.y * sqrt(maxf(0.0, 1.0 - c * c))
+		r += CAR_HALF_SIZE.x * c + CAR_HALF_SIZE.y * sqrt(maxf(0.0, 1.0 - c * c))
 	if Vector2(q.x - ground.x, q.z - ground.z).length() > r or h < -GROUND_REACH or h > AIR_REACH:
 		return -1.0
 	return u
+
+
+## True when the car footprint (centre `pos`, heading `car_fwd`) overlaps the ring's cylinder of radius `r`
+## standing on `ground` (same height span as `crossing`).
+static func touches(ground: Vector3, r: float, pos: Vector3, car_fwd: Vector3) -> bool:
+	var h := pos.y - ground.y
+	if h < -GROUND_REACH or h > AIR_REACH:
+		return false
+	var l := Vector2(ground.x - pos.x, ground.z - pos.z)
+	var f := Vector2(car_fwd.x, car_fwd.z)
+	if f.length_squared() < 1e-6:
+		return l.length() <= r + CAR_HALF_SIZE.x
+	f = f.normalized()
+	# Distance from the ring centre to the car rectangle, in the car's frame.
+	var dz := maxf(absf(l.dot(f)) - CAR_HALF_SIZE.y, 0.0)
+	var dx := maxf(absf(l.dot(Vector2(-f.y, f.x))) - CAR_HALF_SIZE.x, 0.0)
+	return Vector2(dx, dz).length() <= r
+
+
+## Fraction (0..1) along the segment a -> b where the car first touches the ring (direction does not matter), or -1
+## if it does not touch it at b. 0 when it already touched at a.
+static func touch_fraction(ground: Vector3, r: float, a: Vector3, b: Vector3, car_fwd: Vector3) -> float:
+	if not touches(ground, r, b, car_fwd):
+		return -1.0
+	if touches(ground, r, a, car_fwd):
+		return 0.0
+	var lo := 0.0
+	var hi := 1.0
+	for _i in 8:
+		var m := (lo + hi) * 0.5
+		if touches(ground, r, a.lerp(b, m), car_fwd):
+			hi = m
+		else:
+			lo = m
+	return hi
 
 
 ## Ground pose under a car-centre position `pos` facing `dir` (ray down onto the world layer).

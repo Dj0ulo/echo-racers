@@ -92,6 +92,33 @@ func _repair_directions() -> void:
 			return
 
 
+## RINGS tracks: re-time `run`'s splits (and finish time) to the moment its car first touched each ring of
+## radius `r`, the rule races use, instead of when its centre was on the checkpoint. Left untouched if the run
+## misses a ring (it was not driven on this track's rings).
+func retime_to_rings(run: EchoRun, r: float) -> void:
+	if style != Style.RINGS:
+		return
+	var n := run.sample_count()
+	var out := PackedFloat32Array([0.0])
+	var j := 1
+	for k in range(1, checkpoints.size()):
+		var ground := checkpoints[k] + Vector3.DOWN * 0.7  # Car centre -> ground under it.
+		var t := -1.0
+		while j < n:
+			var q := run.rotations[j]
+			var fwd := Quaternion(q.x, q.y, q.z, q.w) * Vector3.FORWARD
+			var u := CheckpointGate.touch_fraction(ground, r, run.positions[j - 1], run.positions[j], fwd)
+			if u >= 0.0:
+				t = (j - 1 + u) / EchoRun.RATE
+				break
+			j += 1
+		if t < 0.0:
+			return
+		out.append(t)
+	run.splits = out
+	run.time = out[out.size() - 1]
+
+
 static func load_all() -> Array[EchoTrack]:
 	var out: Array[EchoTrack] = []
 	var dir := DirAccess.open(directory)

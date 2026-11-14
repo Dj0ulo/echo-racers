@@ -240,6 +240,7 @@ func save(race := false) -> void:
 	echo.time = _end / EchoRun.RATE
 	track.start = run.transform_at(0.0)
 	track.length = _cum[_end]
+	track.retime_to_rings(echo, gate_radius)
 	track.runs.append(echo)
 	_close(track, race)
 

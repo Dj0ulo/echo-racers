@@ -59,7 +59,8 @@ recorded. Press Y whenever you want and **End the race & place checkpoints**: a 
   few along the run; **Auto: x / y / z extremes** puts one on every local extreme of x, z (outermost points of
   bends) and y (crests and dips). **Set the finish here** trims the run. Start and finish are always checkpoints.
 - **Style** toggles between neon rings (glowing circle on the ground with a light cylinder) and light gates
-  (two neon pillars with sparks).
+  (two neon pillars with sparks). A ring counts as soon as any part of the car touches its cylinder, from any
+  direction; a gate must be driven through forwards (any part of the car between the pillars).
 - **Save & race this echo** or **Save & leave race mode**. The course gets a small neon blue marker (post, ground ring, chevrons) at its start, also
   shown on the minimap (pinned to the rim when far away); the first choice starts racing its echo right away.
   **Discard run** asks whether to record again from the same start or leave race mode.

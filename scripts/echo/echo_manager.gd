@@ -9,7 +9,6 @@ enum State { FREE, COUNTDOWN, RECORDING, RACING, FINISHED, EDITING }
 
 @export var countdown_time := 3.0
 @export var gate_radius := 9.0        ## Checkpoint half-width: how far from its centre the car may pass.
-@export var car_half_size := Vector2(0.88, 2.15)  ## Car footprint (half width, half length): any part in counts.
 @export var min_run_seconds := 3.0    ## Shortest recording that can be turned into an echo.
 @export var result_menu_delay := 1.6  ## Seconds between crossing the finish and the result menu.
 
@@ -69,6 +68,10 @@ func setup(world: WorldGenerator, car: CarController, camera: ChaseCamera, hud: 
 	_race_root.name = "EchoRace"
 	add_child(_race_root)
 	tracks = EchoTrack.load_all()
+	for t in tracks:
+		for r in t.runs:
+			t.retime_to_rings(r, gate_radius)  # Saves timed before rings counted on touch.
+		t.runs.sort_custom(func(a: EchoRun, b: EchoRun) -> bool: return a.time < b.time)
 	_spawn_points()
 
 
@@ -311,8 +314,13 @@ func _update_ghost() -> void:
 
 func _check_gates(delta: float) -> void:
 	var pos := _car.global_position
-	var u := CheckpointGate.crossing(_gates[_next_cp].global_position, _track.directions[_next_cp], gate_radius,
-		_prev_pos, pos, car_half_size, -_car.global_basis.z)
+	var ground := _gates[_next_cp].global_position
+	var fwd := -_car.global_basis.z
+	var u := -1.0
+	if _track.style == EchoTrack.Style.RINGS:
+		u = CheckpointGate.touch_fraction(ground, gate_radius, _prev_pos, pos, fwd)
+	else:
+		u = CheckpointGate.crossing(ground, _track.directions[_next_cp], gate_radius, _prev_pos, pos, fwd)
 	if u < 0.0:
 		return
 	var t := _time - delta * (1.0 - u)
