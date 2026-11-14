@@ -15,8 +15,14 @@ extends RigidBody3D
 ## Boost (nitro): while `input.boost` is held and the gauge is not empty, a strong extra forward
 ## thrust is applied and the top speed is raised. The gauge drains in `boost_duration` seconds, then
 ## after `boost_cooldown` seconds without boosting refills in `boost_refill_time` seconds.
+##
+## Impacts: a sudden horizontal velocity change far beyond what tyres can produce (walls, rocks,
+## posts), or a hit reported by the traffic system via `report_impact`, emits `impacted` once
+## (audio crunch, camera shake) and rumbles the player's controller.
 
 signal flipped
+## Body impact: `strength` 0..1, `heaviness` 0..1 (mass of what was hit, 0 = unknown/static).
+signal impacted(strength: float, heaviness: float)
 
 class Wheel:
 	var mount: Vector3        ## Suspension top, in body space.
@@ -133,6 +139,10 @@ var slip_angle := 0.0        ## Signed body slip angle (degrees, + = sliding tow
 var _slip_rate := 0.0        ## deg/s, smoothed.
 var _flip_timer := 0.0
 var _ray := PhysicsRayQueryParameters3D.new()
+var _impact_last_vel := Vector3.ZERO
+var _impact_last_pos := Vector3.ZERO
+var _impact_cooldown := 0.0
+var _impact_suppress := 0.5  ## Seconds during which velocity jumps are not impacts (spawn, resets).
 
 
 func _ready() -> void:
@@ -156,7 +166,17 @@ func reset_to(xform: Transform3D) -> void:
 	is_drifting = false
 	is_boosting = false
 	_boost_blend = 0.0
+	_impact_suppress = 0.4
+	_impact_last_vel = Vector3.ZERO
 	reset_physics_interpolation()
+
+
+## Reports a body impact from outside the physics (traffic hits). Takes over from the
+## velocity-change detector for a moment so a single hit is not reported twice.
+func report_impact(strength: float, heaviness := 0.0) -> void:
+	_impact_cooldown = 0.3
+	impacted.emit(strength, heaviness)
+	input.rumble(strength)
 
 
 ## Fills the boost gauge instantly (e.g. at the start of an echo race).
@@ -172,6 +192,7 @@ func get_speed_kmh() -> float:
 
 func _physics_process(delta: float) -> void:
 	input.update_input()
+	_detect_impact(delta)
 	var xform := global_transform
 	var up := xform.basis.y
 	var forward := -xform.basis.z
@@ -238,6 +259,28 @@ func _physics_process(delta: float) -> void:
 	apply_central_force(-vel * vel.length() * air_drag)
 
 	_check_flipped(delta, up, abs_speed)
+
+
+## Velocity-jump impact detector (horizontal only, so landings and bumps don't count).
+func _detect_impact(delta: float) -> void:
+	var pos := global_position
+	var vel := linear_velocity
+	_impact_cooldown -= delta
+	_impact_suppress -= delta
+	# Teleports (resets, echo restarts) are not crashes.
+	if pos.distance_to(_impact_last_pos) > maxf(6.0, _impact_last_vel.length() * delta * 3.0):
+		_impact_suppress = 0.4
+	var dv := vel - _impact_last_vel
+	_impact_last_pos = pos
+	_impact_last_vel = vel
+	if _impact_suppress > 0.0 or _impact_cooldown > 0.0:
+		return
+	var dvh := Vector2(dv.x, dv.z).length()
+	if dvh > 1.4:
+		_impact_cooldown = 0.25
+		var strength := clampf((dvh - 1.4) / 7.0, 0.15, 1.0)
+		impacted.emit(strength, 0.0)
+		input.rumble(strength)
 
 
 func _update_steering(delta: float, abs_speed: float) -> void:

@@ -88,7 +88,6 @@ var debug_log := false
 var _cars: Array[TrafficCar] = []
 var _lane_of := {}  ## TrafficCar -> Lane
 var _player: RigidBody3D
-var _player_audio: Node
 var _world: WorldGenerator
 var _time := 0.0
 var _cooldowns := {}  ## Pair key -> time until which impacts of that pair are not "fresh".
@@ -102,8 +101,6 @@ func _ready() -> void:
 	debug_log = "--autodrive" in args
 	_world = get_node(world_path) as WorldGenerator
 	_player = get_node_or_null(player_path) as RigidBody3D
-	if _player:
-		_player_audio = _player.get_node_or_null("Audio")
 	var rng := RandomNumberGenerator.new()
 	rng.seed = traffic_seed
 	for road in _world.roads:
@@ -513,8 +510,8 @@ func _try_contact(a: Body, b: Body) -> void:
 	if fresh and b.car == null:
 		player_crashed.emit(a.car, closing)
 		var strength := clampf(closing / 15.0, 0.1, 1.0)
-		if _player_audio and _player_audio.has_method(&"play_impact"):
-			_player_audio.play_impact(strength, clampf(a.car.mass / 6000.0, 0.0, 1.0))
+		if _player is CarController:
+			(_player as CarController).report_impact(strength, clampf(a.car.mass / 6000.0, 0.0, 1.0))
 		if debug_log:
 			print(("Crash: %.1f km/h closing into %s (%.0f kg, %s) | player %.1f -> %.1f km/h, yaw %.2f -> %.2f rad/s, " +
 				"vy %.2f | traffic %.1f -> %.1f km/h, yaw %.2f rad/s") % [

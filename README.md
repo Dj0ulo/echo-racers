@@ -89,13 +89,18 @@ owns the sky shader.
 ## Layout
 
 - `scripts/vehicle/` — `car_controller.gd` (raycast suspension + arcade tyre physics, all tunables exported),
-  `car_visuals.gd` (procedural body, wheels, lights, tyre smoke), `vehicle_input.gd` (input actions → commands).
+  `car_visuals.gd` (procedural body, wheels, lights, tyre smoke), `vehicle_input.gd` (input actions → commands,
+  controller rumble). Every body impact (wall/prop hits from a velocity jump, traffic hits reported by the
+  manager) goes through the controller's `impacted` signal: crash sound, camera shake and a pad vibration scaled
+  by the impact strength (`rumble_*` exports on `Car/Input`, `Crash Shake` exports on the camera).
 - Audio (`scripts/vehicle/car_audio.gd`, node `Car/Audio`) — fully synthesised car sound on its own `CarAudio` bus
   (hard limiter): a real-time engine voice (firing-pulse wavetables, simulated 6-speed gearbox with shift cuts,
   downshift blips, rev limiter and overrun pops), tyre squeal/skid, wind, road rumble, off-road crunch, suspension
-  thumps, impacts, gear and handbrake clicks. `car_sound_synth.gd` generates all the samples at startup.
+  thumps, gear and handbrake clicks. Light taps make a knock; real hits play one of several layered crashes
+  (chassis whump, crumpling metal, panel ring, debris, glass on the heaviest).
+  `car_sound_synth.gd` generates all the samples at startup.
 - `scripts/camera/` — `chase_camera.gd` (smoothed chase camera: speed-based FOV/pull-back/lowering, acceleration
-  lag and FOV kick, subtle noise shake, right-stick free look and rear view) and `speed_effects.gd` (wind-streak particles + speed overlay above ~80 km/h).
+  lag and FOV kick, subtle noise shake, trauma shake on crashes, right-stick free look and rear view) and `speed_effects.gd` (wind-streak particles + speed overlay above ~80 km/h).
 - `scripts/world/` — `world_generator.gd` defines the road network and orchestrates `terrain_data.gd` (height
   field, every road carved in, computed on the WorkerThreadPool), `road_path.gd` (spline roads, open or looped,
   with a configurable cross-section: lanes, lane width, median) and the `*_builder.gd` mesh/collider builders

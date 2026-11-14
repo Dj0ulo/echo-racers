@@ -42,6 +42,13 @@ extends Camera3D
 @export var boost_pull_back := 0.5          ## Extra metres of distance while boosting.
 @export var boost_shake := 0.5              ## Extra shake amount (0..1 scale) while boosting.
 
+@export_group("Crash Shake")
+@export var crash_shake_deg := 4.0          ## Max rotational shake on a full-strength impact.
+@export var crash_shake_offset := 0.22      ## Max positional shake (m) on a full-strength impact.
+@export var crash_shake_frequency := 24.0
+@export var crash_trauma_decay := 1.4       ## Trauma lost per second (shake = trauma^2).
+@export var crash_trauma_scale := 0.9       ## Trauma added per unit of impact strength.
+
 @export_group("Free Look")
 @export var look_max_yaw_deg := 90.0        ## Stick pans at most this far either side of straight behind.
 @export var look_max_pitch_up_deg := 14.0   ## Camera rises this much with the stick held down.
@@ -75,12 +82,15 @@ var _time := 0.0
 var _noise := FastNoiseLite.new()
 var _look_yaw := 0.0    ## Radians, positive = view pans to the right (stick right).
 var _look_pitch := 0.0  ## Radians, positive = camera higher.
+var _trauma := 0.0      ## 0..1, raised by impacts, decays over time.
 
 
 func _ready() -> void:
 	top_level = true
 	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	_target = get_node(target_path) as RigidBody3D
+	if _target is CarController:
+		(_target as CarController).impacted.connect(_on_impacted)
 	_ray.collision_mask = collision_mask
 	_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
 	_noise.frequency = 1.0
@@ -93,6 +103,15 @@ func get_target() -> RigidBody3D:
 	return _target
 
 
+## Adds camera shake trauma (0..1); stacked hits add up, capped at 1.
+func add_trauma(amount: float) -> void:
+	_trauma = clampf(_trauma + amount, 0.0, 1.0)
+
+
+func _on_impacted(strength: float, heaviness: float) -> void:
+	add_trauma((0.25 + 0.75 * strength) * crash_trauma_scale * (1.0 + 0.3 * heaviness))
+
+
 ## Instantly places the camera behind the target (after spawning or resetting).
 func snap() -> void:
 	if _target == null:
@@ -101,6 +120,7 @@ func snap() -> void:
 	_focus = t.origin
 	_yaw_dir = _flat_forward(t.basis, _yaw_dir)
 	_prev_speed = _forward_speed()
+	_trauma = 0.0
 	_accel_fast = 0.0
 	_accel_slow = 0.0
 	forward_accel = 0.0
@@ -175,6 +195,7 @@ func _process(delta: float) -> void:
 	_update_free_look(delta)
 	_place(speed_t)
 	_apply_shake()
+	_apply_crash_shake(delta)
 
 
 ## Right stick: smoothed orbit yaw/pitch with deadzone (from the action deadzones), spring-back on
@@ -247,6 +268,24 @@ func _apply_shake() -> void:
 	rotate_object_local(Vector3.UP, yaw * deg * 0.6)
 	rotate_object_local(Vector3.FORWARD, roll * deg * 0.5)
 	global_position += global_basis * Vector3(yaw, pitch, 0.0) * shake_offset * amount
+
+
+## Sharp, decaying trauma shake after impacts (fast noise, rotation + offset, a bit of FOV punch).
+func _apply_crash_shake(delta: float) -> void:
+	if _trauma <= 0.0:
+		return
+	var amount := _trauma * _trauma
+	var tt := _time * crash_shake_frequency
+	var pitch := _noise.get_noise_2d(tt, 211.0)
+	var yaw := _noise.get_noise_2d(tt, 307.0)
+	var roll := _noise.get_noise_2d(tt, 401.0)
+	var rad := deg_to_rad(crash_shake_deg) * amount
+	rotate_object_local(Vector3.RIGHT, pitch * rad)
+	rotate_object_local(Vector3.UP, yaw * rad * 0.7)
+	rotate_object_local(Vector3.FORWARD, roll * rad)
+	global_position += global_basis * Vector3(yaw, pitch, 0.0) * crash_shake_offset * amount
+	fov -= 3.0 * amount
+	_trauma = maxf(_trauma - crash_trauma_decay * delta, 0.0)
 
 
 func _forward_speed() -> float:

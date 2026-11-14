@@ -9,7 +9,9 @@ extends Node
 ##   downshift, a rev limiter and a few overrun pops on lift-off.
 ## - Loops (pre-synthesised AudioStreamWAVs, volume/pitch driven per frame): tyre squeal (lateral
 ##   slip), tyre skid (handbrake lock, hard braking, launch chirp), wind, road rumble, off-road crunch.
-## - One-shots: suspension thumps and landings, body impacts, gear-change clicks, handbrake ratchet.
+## - One-shots: suspension thumps and landings, gear-change clicks, handbrake ratchet. Body
+##   impacts (CarController.impacted) play a light knock for taps and one of several layered crash
+##   recordings (crunch, metal, debris, glass on the heaviest) for real hits.
 ## - Boost: a nitro loop (turbo whine + hiss + thrust roar) following a spool envelope, a whoosh
 ##   when it kicks in and a blow-off "pssh" when it ends.
 ## All players go to a dedicated bus with a hard limiter so nothing clips.
@@ -36,6 +38,8 @@ const SHIFT_TIME := 0.16
 @export_range(0.0, 2.0) var tyre_volume := 1.0
 @export_range(0.0, 2.0) var ambience_volume := 1.0
 @export_range(0.0, 2.0) var effects_volume := 1.0
+@export_range(0.0, 2.0) var crash_volume := 1.0
+@export_range(0.0, 1.0) var crash_threshold := 0.3  ## Impacts below this strength are light knocks.
 
 var rpm := IDLE_RPM
 var gear := 1                    ## 0 = reverse, 1..6 forward.
@@ -92,15 +96,16 @@ var _click: AudioStreamPlayer
 var _ratchet: AudioStreamPlayer
 var _release: AudioStreamPlayer
 var _boost_start: AudioStreamPlayer
+var _crash: AudioStreamPlayer
+var _crash_heavy: AudioStreamPlayer
 var _blow_off: AudioStreamPlayer
 
 # Event detection (physics rate)
 var _last_pos := Vector3.ZERO
-var _last_vel := Vector3.ZERO
+var _last_vel := Vector3.ZERO  ## Only used to tell teleports apart from motion.
 var _prev_comp := PackedFloat32Array([0.0, 0.0, 0.0, 0.0])
 var _bump_cooldown := PackedFloat32Array([0.0, 0.0, 0.0, 0.0])
 var _thump_cooldown := 0.0
-var _impact_cooldown := 0.0
 var _suppress_events := 0.5
 var _air_time := 0.0
 var _fall_speed := 0.0
@@ -138,6 +143,19 @@ func _ready() -> void:
 	_release = _make_player(&"HandbrakeRelease", Synth.release_click(), 1)
 	_boost_start = _make_player(&"BoostWhoosh", Synth.boost_whoosh(), 2)
 	_blow_off = _make_player(&"BlowOff", Synth.blow_off(), 2)
+	_crash = _make_player(&"Crash", _randomizer([Synth.crash(0, false), Synth.crash(1, false), Synth.crash(2, false)]), 3)
+	_crash_heavy = _make_player(&"CrashHeavy", _randomizer([Synth.crash(3, true), Synth.crash(4, true)]), 2)
+	_car.impacted.connect(_on_impacted)
+
+
+func _randomizer(streams: Array[AudioStreamWAV]) -> AudioStreamRandomizer:
+	var r := AudioStreamRandomizer.new()
+	r.playback_mode = AudioStreamRandomizer.PLAYBACK_RANDOM_NO_REPEATS
+	r.random_pitch = 1.0
+	r.random_volume_offset_db = 0.0
+	for st in streams:
+		r.add_stream(-1, st)
+	return r
 
 
 func _ensure_bus() -> StringName:
@@ -489,13 +507,22 @@ func _play(p: AudioStreamPlayer, gain: float, pitch: float) -> void:
 
 # --- Events (thumps, landings, impacts) --------------------------------------------------------
 
-## Body impact against another vehicle (called by TrafficManager): `strength` 0..1 from the closing
-## speed, `heaviness` 0..1 from the other vehicle's mass (lower, duller crunch). Takes over from the
-## velocity-change detector below for this hit.
-func play_impact(strength: float, heaviness := 0.0) -> void:
-	var pitch := randf_range(0.9, 1.05) * lerpf(1.15, 0.8, strength) * lerpf(1.0, 0.82, heaviness)
-	_play(_impact, effects_volume * lerpf(0.3, 0.75, strength), pitch)
-	_impact_cooldown = 0.3
+## Body impact (CarController.impacted): `strength` 0..1, `heaviness` 0..1 from the mass of what
+## was hit (lower, duller crunch). Light taps get a knock, real hits a layered crash.
+func _on_impacted(strength: float, heaviness: float) -> void:
+	if _suppress_events > 0.0:
+		return
+	var weight := lerpf(1.0, 0.82, heaviness)
+	if strength < crash_threshold:
+		_play(_impact, effects_volume * lerpf(0.25, 0.55, strength / crash_threshold),
+				randf_range(0.9, 1.1) * lerpf(1.15, 0.95, strength) * weight)
+		return
+	var k := (strength - crash_threshold) / (1.0 - crash_threshold)
+	var p := _crash_heavy if k > 0.75 else _crash
+	_play(p, crash_volume * lerpf(0.5, 0.95, k), randf_range(0.93, 1.05) * lerpf(1.08, 0.9, k) * weight)
+	# A touch of the old low boom under heavy hits adds weight.
+	if k > 0.3:
+		_play(_impact, effects_volume * 0.35 * k, randf_range(0.7, 0.8) * weight)
 
 
 func _physics_process(delta: float) -> void:
@@ -504,14 +531,12 @@ func _physics_process(delta: float) -> void:
 	var pos := _car.global_position
 	var vel := _car.linear_velocity
 	_thump_cooldown -= delta
-	_impact_cooldown -= delta
 	_suppress_events -= delta
 
 	# Teleports (resets) are not crashes.
 	if pos.distance_to(_last_pos) > maxf(6.0, _last_vel.length() * delta * 3.0):
 		_suppress_events = 0.4
 		_air_time = 0.0
-	var dv := vel - _last_vel
 	_last_pos = pos
 	_last_vel = vel
 
@@ -520,13 +545,6 @@ func _physics_process(delta: float) -> void:
 		for i in wheels.size():
 			_prev_comp[i] = wheels[i].compression
 		return
-
-	# Body impacts: a sudden horizontal velocity change far beyond what tyres can produce.
-	var dvh := Vector2(dv.x, dv.z).length()
-	if dvh > 1.4 and _impact_cooldown <= 0.0:
-		var strength := clampf((dvh - 1.4) / 7.0, 0.15, 1.0)
-		_play(_impact, effects_volume * lerpf(0.25, 0.6, strength), randf_range(0.85, 1.1) * lerpf(1.15, 0.85, strength))
-		_impact_cooldown = 0.25
 
 	# Landings
 	if _car.grounded_wheels == 0:

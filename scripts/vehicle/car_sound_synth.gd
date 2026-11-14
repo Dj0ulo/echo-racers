@@ -236,6 +236,84 @@ static func impact() -> AudioStreamWAV:
 	return make_wav(out, false)
 
 
+## Real crash, layered like a recorded one: a broadband crack, the chassis "whump" (falling low
+## sine + low noise), sheet metal crumpling (dense band-passed noise grains thinning out over
+## ~0.4 s), a couple of wobbling panel resonances, then plastic debris ticks and, when `glass`,
+## a shower of glass tinkles. Each `variant` seed gives a different crash.
+static func crash(variant: int, glass: bool) -> AudioStreamWAV:
+	_rng.seed = 101 + variant * 977
+	var length := 1.5 if glass else 1.0
+	var n := int(RATE * length)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	# Crack + body whump.
+	var phase := 0.0
+	var lp := 0.0
+	var lp2 := 0.0
+	var f0 := _rng.randf_range(70.0, 95.0)
+	for i in int(RATE * 0.6):
+		var t := float(i) / RATE
+		phase += lerpf(f0, 34.0, minf(t / 0.25, 1.0)) / RATE
+		var w := _rng.randf_range(-1.0, 1.0)
+		lp += (w - lp) * 0.06
+		lp2 += (lp - lp2) * 0.06
+		var attack := minf(t / 0.0015, 1.0)
+		out[i] += attack * (sin(TAU * phase) * 0.8 * exp(-t / 0.16) + lp2 * 4.5 * exp(-t / 0.09)) \
+				+ w * 0.9 * exp(-t / 0.004)
+	# Crumpling metal: many short resonant noise grains, dense at first, thinning out.
+	var grains := 70 + _rng.randi_range(0, 30)
+	for g in grains:
+		var at := 0.42 * pow(_rng.randf(), 1.8)
+		var amp := exp(-at / 0.14) * _rng.randf_range(0.3, 1.0)
+		_add_grain(out, at, _rng.randf_range(500.0, 3400.0), _rng.randf_range(0.004, 0.022), amp * 1.1)
+	# Panel resonances: inharmonic modes with a slow pitch wobble ("bwong" of bent sheet metal).
+	for k in 3:
+		var hz := _rng.randf_range(160.0, 720.0)
+		var decay := _rng.randf_range(0.12, 0.3)
+		var wob := _rng.randf_range(5.0, 11.0)
+		var ph := 0.0
+		for i in mini(n, int(RATE * decay * 5.0)):
+			var t := float(i) / RATE
+			ph += hz * (1.0 + 0.02 * sin(TAU * wob * t)) / RATE
+			out[i] += sin(TAU * ph) * exp(-t / decay) * minf(t / 0.003, 1.0) * 0.12
+	# Plastic / trim debris bouncing: dull ticks scattered over the tail.
+	for k in 14:
+		var at := _rng.randf_range(0.08, length * 0.7)
+		_add_click(out, at, _rng.randf_range(350.0, 1100.0), _rng.randf_range(0.004, 0.01),
+				0.25 * exp(-at / 0.45))
+	# Glass: a few soft tinkles shortly after the hit (a hint, not a shower).
+	if glass:
+		for k in 16:
+			var at := 0.04 + 0.5 * pow(_rng.randf(), 2.0)
+			var hz := _rng.randf_range(2400.0, 5200.0)
+			var decay := _rng.randf_range(0.012, 0.035)
+			var amp := exp(-at / 0.2) * _rng.randf_range(0.2, 0.6) * 0.1
+			var start := int(at * RATE)
+			for i in range(start, mini(n, start + int(decay * RATE * 6.0))):
+				var t := float(i - start) / RATE
+				var e := exp(-t / decay) * amp
+				out[i] += e * (sin(TAU * hz * t) + 0.5 * sin(TAU * hz * 1.53 * t + 1.0) + 0.3 * sin(TAU * hz * 0.71 * t))
+	# Gentle saturation glues the layers, like a mic overloading on impact.
+	for i in n:
+		out[i] = tanh(out[i] * 1.4)
+	_normalize(out, 0.95)
+	return make_wav(out, false)
+
+
+## One band-passed noise grain (state-variable filter) added into `buf`.
+static func _add_grain(buf: PackedFloat32Array, at: float, center_hz: float, decay: float, amp: float) -> void:
+	var start := int(at * RATE)
+	var f := 2.0 * sin(PI * minf(center_hz, 3500.0) / RATE)
+	var low := 0.0
+	var band := 0.0
+	for i in range(start, mini(buf.size(), start + int(decay * RATE * 6.0))):
+		var t := float(i - start) / RATE
+		var x := _rng.randf_range(-1.0, 1.0)
+		low += f * band
+		band += f * (x - low - 0.25 * band)
+		buf[i] += band * amp * exp(-t / decay) * minf(t / 0.0008, 1.0)
+
+
 ## Gear change: a double mechanical "tick-clunk".
 static func shift_click() -> AudioStreamWAV:
 	_rng.seed = 23
