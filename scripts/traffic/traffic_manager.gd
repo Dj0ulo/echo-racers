@@ -10,7 +10,10 @@ extends Node3D
 ## solver; instead this node tests the player's body box against every nearby traffic car (and crashed
 ## cars against other traffic) as oriented boxes in the ground plane, and exchanges a horizontal impulse
 ## at the contact point: restitution + Coulomb friction, both masses and yaw inertias, so a light car
-## gets punted, a truck barely budges, off-centre hits spin either car and nothing is launched upwards.
+## gets punted, a truck barely budges and off-centre hits spin either car. On top of that impulse, a
+## hard hit from the player launches the traffic car (arcade, not physical): how high, how far and how
+## fast it tumbles grows with the impact energy (~ closing speed squared) and the player/car mass ratio,
+## so a hatch hit at 200 km/h barrel-rolls away while a truck only lurches.
 ## A hit car switches to its CRASHED state (see TrafficCar): it slides, spins and brakes to a stop,
 ## waits, then eases back into its lane.
 ##
@@ -25,6 +28,14 @@ signal player_crashed(car: TrafficCar, closing_speed: float)
 @export var country_cars_per_lane := 6
 @export var highway_cars_per_lane := 6
 @export var traffic_seed := 4711
+@export_group("Launch")
+@export var launch_min_kmh := 60.0     ## Closing speed (km/h) from which a player hit throws traffic in the air.
+@export var launch_full_kmh := 170.0   ## Closing speed for a full launch (energy scales with its square).
+@export var launch_up_speed := 10.0    ## Upward speed (m/s) of a full launch on a car as heavy as the player.
+@export var launch_spin := 9.0         ## Roll/flip rate (rad/s) of a full launch.
+@export var launch_push := 0.45        ## Extra outward speed, as a fraction of the closing speed.
+@export var launch_keep_speed := 0.65  ## Share of the speed the hit took off the player given back on a full launch.
+@export_group("")
 
 const MAX_ACCEL := 1.8       ## m/s^2
 const COMFORT_DECEL := 3.0   ## m/s^2
@@ -373,6 +384,8 @@ func _collide(player_body: Body) -> void:
 	# Player against every traffic car close enough to touch.
 	if player_body:
 		for car in _cars:
+			if car.is_airborne():
+				continue  # Thrown clear: the player ploughs on underneath.
 			var reach := car.length * 0.5 + PLAYER_HALF_LENGTH + 1.0
 			if car.global_position.distance_squared_to(player_body.center) < reach * reach:
 				_try_contact(_car_body(car), player_body)
@@ -488,6 +501,8 @@ func _try_contact(a: Body, b: Body) -> void:
 			for body in [a, b]:
 				if body.car:
 					body.car.hold_time = maxf(body.car.hold_time, lerpf(1.5, 5.0, severity))
+			if b.car == null:
+				_launch(a.car, b, n, closing, pre_b)
 	else:
 		# Touching without closing in: only separate, never shove a car that is driving along.
 		a.movable = a.car.state == TrafficCar.State.CRASHED
@@ -507,6 +522,37 @@ func _try_contact(a: Body, b: Body) -> void:
 				"fresh" if fresh else "contact", pre_b.length() * 3.6, _player.linear_velocity.length() * 3.6,
 				pre_b_yaw, _player.angular_velocity.y, _player.linear_velocity.y,
 				pre_a.length() * 3.6, a.car.crash_vel.length() * 3.6, a.car.crash_yaw_rate])
+
+
+## Throws `car` after a fresh hit by the player body `pb` (contact normal `n` from the car to the player).
+## `player_pre` is the player's velocity before the impact.
+func _launch(car: TrafficCar, pb: Body, n: Vector3, closing: float, player_pre: Vector3) -> void:
+	var v0 := launch_min_kmh / 3.6
+	var v1 := maxf(launch_full_kmh / 3.6, v0 + 1.0)
+	var e := clampf((closing * closing - v0 * v0) / (v1 * v1 - v0 * v0), 0.0, 1.0)  # Energy fraction.
+	if e <= 0.0:
+		return
+	var mass_k := clampf(_player.mass / car.mass, 0.1, 1.0)
+	# Thrown away from the player, biased along the player's travel.
+	var away := -n
+	var travel := _flat_dir(pb.vel, away)
+	var dir := _flat_dir(away + travel, away)
+	var fwd := Vector3(-sin(car.heading), 0.0, -cos(car.heading))
+	var right := Vector3(cos(car.heading), 0.0, -sin(car.heading))
+	var spin := launch_spin * lerpf(0.4, 1.0, e) * sqrt(mass_k) * randf_range(0.8, 1.2)
+	var vy := launch_up_speed * lerpf(0.35, 1.0, e) * mass_k
+	car.launch(vy, -dir.dot(right) * spin, -dir.dot(fwd) * spin * 0.6,
+		dir * closing * launch_push * e * mass_k)
+	car.hold_time = maxf(car.hold_time, 5.0)
+	# The car is thrown clear, so the player ploughs through instead of stopping dead.
+	var keep := launch_keep_speed * e * mass_k
+	var lost := player_pre - _player.linear_velocity
+	lost.y = 0.0
+	_player.linear_velocity += lost * keep
+	pb.vel = _player.linear_velocity
+	if debug_log:
+		print("Launch: %s at %.0f km/h, energy %.2f, vy %.1f m/s, spin %.1f rad/s" % [
+			TrafficCarMesh.Kind.keys()[car.kind], closing * 3.6, e, vy, spin])
 
 
 ## Applies a horizontal impulse at offset `r` from the body's centre of mass.

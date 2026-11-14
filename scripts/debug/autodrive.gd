@@ -16,7 +16,8 @@ extends Node
 ## summaries, "Saved" lines and errors are still printed.
 ##
 ## `--crashtest` replaces the lap with scripted crashes against traffic on a highway straight (rear-ending a
-## hatch and a truck, an off-centre T-bone, being T-boned, a side swipe) and prints pre/post velocities.
+## hatch and a truck, an off-centre T-bone, being T-boned, a side swipe, then two 180-200 km/h hits that
+## launch the traffic car) and prints pre/post velocities and the hit car's peak air height.
 ##
 ## Drift scenarios (each logged at 10 Hz and summarised):
 ##  - "flick":    handbrake flick into a corner, then the autopilot counter-steers on throttle.
@@ -82,6 +83,10 @@ const CRASH_TESTS := [
 		"speed": 0.0, "slide": 18.0, "yaw": 0.0, "lat": 1.0, "p_lane": 1, "p_speed": 0.0, "p_yaw": 90.0},
 	{"name": "side swipe pickup", "kind": TrafficCarMesh.Kind.PICKUP, "lane": 1, "ahead": 8.0, "speed": 26.0,
 		"p_lane": 0, "p_speed": 32.0, "p_target_lane": 1},
+	{"name": "launch: 200 km/h rear-end hatch", "kind": TrafficCarMesh.Kind.HATCH, "lane": 1, "ahead": 60.0,
+		"speed": 12.0, "p_lane": 1, "p_speed": 56.0},
+	{"name": "launch: 180 km/h T-bone sedan", "kind": TrafficCarMesh.Kind.SEDAN, "lane": 1, "ahead": 60.0,
+		"speed": 0.0, "slide": 0.0, "yaw": 90.0, "lat": 0.6, "p_lane": 1, "p_speed": 50.0},
 ]
 const CRASH_TEST_TIME := 9.0
 var _crash_mode := false
@@ -479,7 +484,7 @@ func _next_crash_test() -> void:
 	_car.linear_velocity = tangent * t.p_speed
 	get_parent().get_node("ChaseCamera").snap()
 	_ct_car_start = _ct_car.global_position
-	_ct_stats = {"max_vy": 0.0, "min_up": 1.0, "max_yaw": 0.0, "car_max_yaw": 0.0, "car_max_disp": 0.0,
+	_ct_stats = {"max_vy": 0.0, "min_up": 1.0, "max_yaw": 0.0, "car_max_yaw": 0.0, "car_max_air": 0.0, "car_max_disp": 0.0,
 		"p_pre": Vector3.ZERO, "c_pre": Vector3.ZERO}
 	print("--- crash test '%s': %s %.0f kg, player %.0f km/h, traffic %.0f km/h ---" % [
 		t.name, TrafficCarMesh.Kind.keys()[t.kind], _ct_car.mass, t.p_speed * 3.6,
@@ -527,6 +532,7 @@ func _crash_test_step(delta: float) -> void:
 		_ct_stats.min_up = minf(_ct_stats.min_up, _car.global_basis.y.y)
 		_ct_stats.max_yaw = maxf(_ct_stats.max_yaw, absf(_car.angular_velocity.y))
 		_ct_stats.car_max_yaw = maxf(_ct_stats.car_max_yaw, absf(_ct_car.get_yaw_rate()))
+		_ct_stats.car_max_air = maxf(_ct_stats.car_max_air, _ct_car.air)
 		var rel := _ct_time - _ct_hit_time
 		if not _quiet and rel < 1.5 and fmod(rel + 1e-4, 0.25) < delta:
 			print("  +%.2fs player %5.1f km/h yaw %5.2f | %s %5.1f km/h yaw %5.2f state=%s" % [
@@ -549,7 +555,8 @@ func _end_crash_test() -> void:
 	var fwd := _lane_fwd()
 	print(("Crash test '%s': closing %.1f km/h | player along lane %.1f -> %.1f km/h now, peak yaw %.2f rad/s, " +
 		"max |vy| %.2f m/s, min up.y %.2f | traffic along lane %.1f km/h before, peak yaw %.2f rad/s, " +
-		"moved %.1f m, state %s") % [
+		"peak air %.1f m, moved %.1f m, state %s") % [
 		t.name, _ct_stats.closing * 3.6, p_pre.dot(fwd) * 3.6, _car.linear_velocity.dot(fwd) * 3.6,
 		_ct_stats.max_yaw, _ct_stats.max_vy, _ct_stats.min_up, c_pre.dot(fwd) * 3.6, _ct_stats.car_max_yaw,
+		_ct_stats.car_max_air,
 		_ct_car.global_position.distance_to(_ct_car_start), TrafficCar.State.keys()[_ct_car.state]])

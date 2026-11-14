@@ -123,8 +123,11 @@ owns the sky shader.
   player's body box against nearby traffic (and crashed cars against other traffic) as oriented boxes and
   exchanges a horizontal impulse at the contact point (restitution ~0.28, friction, masses and yaw inertias, a
   per-pair cooldown so contacts never double-bounce), so a hatch gets punted, a truck barely budges and
-  off-centre hits spin both cars without launching anything. A hit car slides, spins and brakes to a stop, waits
-  a few seconds, then eases back into its lane; impacts play the car's crash sound scaled by speed and mass.
+  off-centre hits spin both cars. Above ~60 km/h closing speed a player hit also launches the traffic car
+  (arcade): height, push and tumble grow with the impact energy (closing speed squared) and the player/car mass
+  ratio, so a hatch hit at 180 km/h barrel-rolls ~4 m high while a truck only lurches, and the player keeps most
+  of its speed (`launch_*` exports on the Traffic node). A hit car slides (or flies, bounces and rolls back onto
+  its wheels), spins and brakes to a stop, waits a few seconds, then eases back into its lane; impacts play the car's crash sound scaled by speed and mass.
   `traffic_car_mesh.gd` builds the low-poly bodies (sedan, hatch, van, pickup, box truck).
 - `scripts/game/` — `main.gd` (spawn, pause, reset), `hud.gd` and `minimap.gd` (bottom-left, heading-up circular
   minimap: terrain and every road in `WorldGenerator.roads` are rendered once into a mipmapped texture sized from
@@ -139,8 +142,8 @@ prints handling telemetry and FPS, optionally saves screenshots, then quits. Wor
 Traffic is off during autodrive unless `--traffic` is passed; `--road=highway` (or `link_north`, ...) drives
 another road of the network instead of the country loop (on the highway, in the inner lane at up to 260 km/h).
 `$GODOT --headless --path . -- --autodrive --crashtest` instead stages crashes on a highway straight (rear-ending a
-hatch and a truck, an off-centre T-bone, being T-boned by a van, a side swipe) and prints pre/post velocities, yaw
-rates and the hit car's recovery; every player crash is also logged in the other autodrive modes.
+hatch and a truck, an off-centre T-bone, being T-boned by a van, a side swipe, then two 180-200 km/h launches) and
+prints pre/post velocities, yaw rates, the hit car's peak air height and its recovery; every player crash is also logged in the other autodrive modes.
 `--view=x,y,z,tx,ty,tz` (repeatable, with `--shots`) first saves fog-free stills from a free camera at `x,y,z`
 looking at `tx,ty,tz`; `--view=overview` shows the whole map. `--route=highway,ramp_north_off1,link_north,ramp_north_on2,highway`
 drives through several roads in turn (here: exit the highway, cross the bridge, rejoin the other carriageway).
