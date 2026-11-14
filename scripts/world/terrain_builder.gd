@@ -25,7 +25,10 @@ static func build(parent: Node3D, terrain: TerrainData) -> void:
 		var chunk := MeshInstance3D.new()
 		chunk.name = "Chunk%d" % k
 		chunk.mesh = builders[k].commit(material)
-		chunk.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		# Hills must cast: otherwise at a low sun, trees/rails behind a ridge stay lit and throw long
+		# shadows that look detached from the (unshadowed) terrain. Double-sided so the shadow pass sees
+		# the hill faces turned toward the sun, which removes most self-shadow acne on flat shading.
+		chunk.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
 		root.add_child(chunk)
 
 	var far := MeshInstance3D.new()
