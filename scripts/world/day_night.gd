@@ -137,6 +137,14 @@ func _process(delta: float) -> void:
 	_apply(h)
 
 
+## Jumps to hour `h` (0..24) and relights at once (used when loading a save).
+func set_hour(h: float) -> void:
+	hour = fposmod(h, 24.0)
+	_wait = 0.0
+	_apply_light(hour)
+	_apply(hour)
+
+
 ## Direction toward the sun at hour `h`: rises in the east (+x), culminates in the south (+z), sets in the west.
 func sun_direction(h: float) -> Vector3:
 	var a := (h - 6.0) / 24.0 * TAU

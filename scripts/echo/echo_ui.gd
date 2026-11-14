@@ -237,14 +237,8 @@ func _build_menu() -> void:
 	_menu_panel.offset_right = -MARGIN
 	_menu_panel.offset_top = MARGIN
 	_menu_panel.offset_bottom = -MARGIN
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.02, 0.05, 0.1, 0.84)
-	style.border_color = ACCENT
+	var style := panel_style()
 	style.border_width_left = 3
-	style.set_corner_radius_all(10)
-	style.set_content_margin_all(22)
-	style.shadow_color = Color(0.2, 0.7, 1.0, 0.25)
-	style.shadow_size = 14
 	_menu_panel.add_theme_stylebox_override(&"panel", style)
 	add_child(_menu_panel)
 	var box := VBoxContainer.new()
@@ -264,15 +258,8 @@ func _build_menu() -> void:
 	box.add_child(filler)
 	var hint := _label(15, MUTED, box)
 	hint.text = "↑ ↓  choose      A / Enter  select      B / Esc  back"
-	_row_style.set_content_margin_all(8)
-	_row_style.content_margin_left = 14
-	_row_style.bg_color = Color(0, 0, 0, 0)
-	_row_selected_style.set_content_margin_all(8)
-	_row_selected_style.content_margin_left = 14
-	_row_selected_style.bg_color = Color(ACCENT, 0.2)
-	_row_selected_style.border_color = ACCENT
-	_row_selected_style.border_width_left = 4
-	_row_selected_style.set_corner_radius_all(6)
+	_row_style = row_style(false)
+	_row_selected_style = row_style(true)
 	_menu_panel.visible = false
 
 
@@ -359,6 +346,11 @@ func set_cursor_info(text: String) -> void:
 # --- Helpers -------------------------------------------------------------------------------------
 
 func _label(font_size: int, color: Color, parent: Node = self) -> Label:
+	return make_label(font_size, color, parent)
+
+
+## Shared menu look (also used by the pause menu): outlined label, dark glassy panel, menu rows.
+static func make_label(font_size: int, color: Color, parent: Node) -> Label:
 	var label := Label.new()
 	var settings := LabelSettings.new()
 	settings.font_size = font_size
@@ -369,6 +361,31 @@ func _label(font_size: int, color: Color, parent: Node = self) -> Label:
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	parent.add_child(label)
 	return label
+
+
+## Menu panel background (no border: callers pick which sides get the accent edge).
+static func panel_style() -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.02, 0.05, 0.1, 0.84)
+	style.border_color = ACCENT
+	style.set_corner_radius_all(10)
+	style.set_content_margin_all(22)
+	style.shadow_color = Color(0.2, 0.7, 1.0, 0.25)
+	style.shadow_size = 14
+	return style
+
+
+## Menu row background: transparent, or accent-tinted with an accent left edge when selected.
+static func row_style(selected: bool) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.set_content_margin_all(8)
+	style.content_margin_left = 14
+	style.bg_color = Color(ACCENT, 0.2) if selected else Color(0, 0, 0, 0)
+	if selected:
+		style.border_color = ACCENT
+		style.border_width_left = 4
+		style.set_corner_radius_all(6)
+	return style
 
 
 ## Short sine blips (one note per frequency, back to back) with a soft attack and decay.

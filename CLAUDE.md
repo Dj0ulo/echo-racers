@@ -6,8 +6,9 @@ Controls, world layout details and the debug flags are in `README.md` (link, don
 tabs, typed GDScript, `##` doc comment at the top of each script.
 
 ## Map (one line per script)
-- `scripts/game/main.gd` entry point: spawns the car on the road, pause/quit, resets.
-- `scripts/game/hud.gd` (Hud) speedometer, boost gauge, FPS, controls hint, pause overlay.
+- `scripts/game/main.gd` entry point: spawns the car on the road (or from user://savegame.cfg), pause, save, resets.
+- `scripts/game/hud.gd` (Hud) speedometer, boost gauge, FPS, controls hint.
+- `scripts/game/pause_menu.gd` (PauseMenu) centered Start/Esc menu: Resume, Save, Quit (EchoUi look).
 - `scripts/game/minimap.gd` (Minimap) heading-up circular minimap, terrain+roads rendered once, shader rotates.
 - `scripts/game/world_map.gd` (WorldMap) Select/M full-screen top-down map: pan, zoom, set the GPS destination.
 - `scripts/game/gps.gd` (Gps) destination beacon, route on the minimap, gold filament ahead of the car (free roam only).

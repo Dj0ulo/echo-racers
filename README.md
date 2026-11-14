@@ -31,7 +31,13 @@ __NV_PRIME_RENDER_OFFLOAD=1 __VK_LAYER_NV_optimus=NVIDIA_only __GLX_VENDOR_LIBRA
 | Echo race menu | Tab | Y / Triangle |
 | Look around (springs back on release) | — | Right stick (±90°) |
 | Look back (hold) | C | LB |
-| Pause (Q quits while paused) | Esc | Start |
+| Pause menu (Resume / Save / Quit) | Esc | Start |
+
+**Start** (Esc) pauses and opens a centered menu: up/down (arrows, d-pad, stick) + Enter / A, or click with the
+mouse; Start / Esc / B resumes (Q still quits). **Save** writes the car's position and heading and the time of day
+to `user://savegame.cfg`; the next launch starts there (at rest) instead of on the road spawn. Debug `--autodrive`
+runs ignore the save. Quit does not save. The pause menu is not available in the echo editor or over the echo menu
+and the map, which pause the game themselves.
 
 ## Map and GPS
 
@@ -137,7 +143,7 @@ owns the sky shader.
   of its speed (`launch_*` exports on the Traffic node). A hit car slides (or flies, bounces and rolls back onto
   its wheels), spins and brakes to a stop, waits a few seconds, then eases back into its lane; impacts play the car's crash sound scaled by speed and mass.
   `traffic_car_mesh.gd` builds the low-poly bodies (sedan, hatch, van, pickup, box truck).
-- `scripts/game/` — `main.gd` (spawn, pause, reset), `hud.gd` and `minimap.gd` (bottom-left, heading-up circular
+- `scripts/game/` — `main.gd` (spawn, pause menu, save game, reset), `pause_menu.gd`, `hud.gd` and `minimap.gd` (bottom-left, heading-up circular
   minimap: terrain and every road in `WorldGenerator.roads` are rendered once into a mipmapped texture sized from
   the road network's extent, then a shader rotates/samples it each frame; traffic dots, north marker, zooms out
   with speed).

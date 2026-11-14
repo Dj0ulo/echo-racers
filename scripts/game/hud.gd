@@ -1,7 +1,6 @@
 class_name Hud
 extends CanvasLayer
-## Minimal driving HUD: speedometer with a boost gauge, rotating minimap, FPS, a fading controls hint and the
-## pause overlay.
+## Minimal driving HUD: speedometer with a boost gauge, rotating minimap, FPS and a fading controls hint.
 
 const BOOST_FULL := Color(0.3, 0.82, 1.0)
 const BOOST_ACTIVE := Color(1.0, 0.55, 0.12)
@@ -14,7 +13,6 @@ var car: CarController
 var _speed_label: Label
 var _fps_label: Label
 var _hint_label: Label
-var _pause_panel: Control
 var _boost_bar: Control
 var _boost_label: Label
 var _boost_shown := 1.0    ## Smoothed gauge value for display.
@@ -48,18 +46,7 @@ func _ready() -> void:
 
 	_hint_label = _make_label(18)
 	_hint_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT, Control.PRESET_MODE_KEEP_SIZE, 24)
-	_hint_label.text = "W/S  throttle / brake-reverse\nA/D  steer\nSpace  handbrake (drift)\nShift  boost\nR  reset car\nTab  echo race menu\nM  map / GPS destination\nEsc  pause"
-
-	_pause_panel = ColorRect.new()
-	(_pause_panel as ColorRect).color = Color(0.05, 0.07, 0.1, 0.45)
-	_pause_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_pause_panel.visible = false
-	add_child(_pause_panel)
-	var pause_label := _make_label(40, _pause_panel)
-	pause_label.text = "PAUSED\n\nEsc  resume      Q  quit"
-	pause_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	pause_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	pause_label.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_hint_label.text = "W/S  throttle / brake-reverse\nA/D  steer\nSpace  handbrake (drift)\nShift  boost\nR  reset car\nTab  echo race menu\nM  map / GPS destination\nEsc  pause menu (save)"
 
 
 func _process(delta: float) -> void:
@@ -147,10 +134,6 @@ func _draw_boost_bar() -> void:
 
 func get_minimap() -> Minimap:
 	return _minimap
-
-
-func set_paused(paused: bool) -> void:
-	_pause_panel.visible = paused
 
 
 func _make_label(font_size: int, parent: Node = self) -> Label:
