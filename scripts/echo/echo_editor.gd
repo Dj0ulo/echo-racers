@@ -5,9 +5,8 @@ extends Node3D
 ## move the finish, pick the gate style, then save the echo or discard it. Runs while the tree is paused and
 ## drives the EchoUi side menu.
 
-## `track` is null when discarded. `race`: race the new echo right away (saved), or record again (discarded);
-## otherwise leave race mode.
-signal finished(track: EchoTrack, race: bool)
+## `track` is null when discarded. EchoManager then offers racing it / recording again or leaving race mode.
+signal finished(track: EchoTrack)
 
 @export var pitch_deg := 62.0
 @export var fov := 50.0
@@ -225,7 +224,7 @@ func toggle_style() -> void:
 	_changed()
 
 
-func save(race := false) -> void:
+func save() -> void:
 	var track := EchoTrack.new()
 	track.id = EchoTrack.new_id()
 	track.style = style
@@ -242,14 +241,14 @@ func save(race := false) -> void:
 	track.length = _cum[_end]
 	track.retime_to_rings(echo, gate_radius)
 	track.runs.append(echo)
-	_close(track, race)
+	_close(track)
 
 
-func discard(record_again := false) -> void:
-	_close(null, record_again)
+func discard() -> void:
+	_close(null)
 
 
-func _close(track: EchoTrack, race: bool) -> void:
+func _close(track: EchoTrack) -> void:
 	if _env:
 		_env.fog_enabled = _fog_was
 	_ui.close_menu()
@@ -257,7 +256,7 @@ func _close(track: EchoTrack, race: bool) -> void:
 	_ui.set_cursor_info("")
 	if _prev_camera:
 		_prev_camera.make_current()
-	finished.emit(track, race)
+	finished.emit(track)
 	queue_free()
 
 
@@ -421,9 +420,8 @@ func _menu_items() -> Array[Dictionary]:
 		{"text": "Clear checkpoints", "action": clear_checkpoints},
 		{"text": "Set the finish here", "action": set_finish_here},
 		{"text": "Style: %s" % ("neon rings" if style == EchoTrack.Style.RINGS else "light gates"), "action": toggle_style},
-		{"text": "Save & race this echo", "action": save.bind(true)},
-		{"text": "Save & leave race mode", "action": save.bind(false)},
-		{"text": "Discard run", "action": _confirm_discard},
+		{"text": "Save", "action": save},
+		{"text": "Discard", "action": _confirm_discard},
 	]
 
 
@@ -448,7 +446,6 @@ func _refresh_menu() -> void:
 func _confirm_discard() -> void:
 	_in_confirm = true
 	_ui.open_menu("DISCARD RUN?", "The recording will be lost.", [
-		{"text": "Discard & record again", "action": discard.bind(true)},
-		{"text": "Discard & leave race mode", "action": discard.bind(false)},
-		{"text": "No, keep editing", "action": _open_menu.bind(8)},
-	], _open_menu.bind(8), 2)
+		{"text": "Yes, discard it", "action": discard},
+		{"text": "No, keep editing", "action": _open_menu.bind(7)},
+	], _open_menu.bind(7), 1)

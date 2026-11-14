@@ -2,7 +2,7 @@ extends Node
 ## Debug: `godot -- --autodrive --echotest [--quiet] [--shots=/abs/dir]` runs the echo mode end to end while
 ## the autodrive drives: records a 14 s run, opens the top-view editor and places checkpoints on the run's
 ## extremes (shot `echo_editor.png`, then `echo_editor_gates.png` zoomed in with light gates), saves it,
-## races the echo as a ghost by following its line 6 % faster (the autodrive's scripted drift tests are switched
+## picks "Race the new echo" in the result menu back in the car view (shot `echo_saved_menu.png`), races the echo as a ghost by following its line 6 % faster (the autodrive's scripted drift tests are switched
 ## off for that leg; shot `echo_race.png`), prints every split and the result, saves the new echo if
 ## it won, then deletes the scratch course (stored in user://echoes_test, never the player's echoes).
 
@@ -60,12 +60,19 @@ func _process(delta: float) -> void:
 		6:
 			_shot("echo_editor_gates.png")
 			_echo._editor.toggle_style()
-			_echo._editor.save(true)  # "Save & race this echo".
+			_echo._editor.save()
 			_next(0.5)
-		7:
+		7:  # Back in the car view, paused, with the result menu: Enter picks "Race the new echo".
 			var t: EchoTrack = _echo.tracks.back()
 			print("Echo test: saved '%s', %d checkpoints, %.0f m, echo %s" % [t.name, t.checkpoints.size(), t.length,
 				EchoRun.format_time(t.best_time())])
+			print("Echo test: result menu in car view = %s (paused %s)" % [_echo.ui.is_menu_open()
+				and _echo._editor == null and get_viewport().get_camera_3d() == _echo._camera, get_tree().paused])
+			_shot("echo_saved_menu.png")
+			_press(&"ui_accept")
+			_next(0.3)
+		8:
+			var t: EchoTrack = _echo.tracks.back()
 			print("Echo test: racing the new echo = %s" % (_echo.state == EchoManager.State.COUNTDOWN and _echo._track == t))
 			var autodrive := get_parent().get_node_or_null(^"Autodrive")
 			if autodrive:
@@ -73,7 +80,7 @@ func _process(delta: float) -> void:
 			_follow = t.runs[0]
 			_follow_i = 0
 			_next(0.1)
-		8:
+		9:
 			if _echo._next_cp != _seen_cp and _echo._splits.size() > _seen_cp:
 				var k := _seen_cp
 				print("Echo test: checkpoint %d at %s (echo %s)" % [k, EchoRun.format_time(_echo._splits[k]),
@@ -88,8 +95,8 @@ func _process(delta: float) -> void:
 				_next(2.5)
 			elif _echo._time > RECORD_SECONDS * 2.5:
 				print("Echo test: FAILED, no finish after %.0f s (next checkpoint %d)" % [_echo._time, _echo._next_cp])
-				_phase = 10
-		9:
+				_phase = 11
+		10:
 			if _echo._won:
 				_echo.save_new_echo()
 			var t: EchoTrack = _echo.tracks.back()
@@ -100,7 +107,7 @@ func _process(delta: float) -> void:
 			var reloaded := EchoTrack.load_all()
 			print("Echo test: reload ok = %s" % [reloaded.size() == 1 and reloaded[0].runs.size() == t.runs.size()])
 			_next(0.5)
-		10:
+		11:
 			for t in EchoTrack.load_all():
 				t.erase()
 			print("Echo test done")

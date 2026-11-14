@@ -369,28 +369,28 @@ func _clear_race() -> void:
 	_minimap.echo_target_active = false
 
 
-func _on_editor_finished(track: EchoTrack, race: bool) -> void:
+## Back from the editor to the car view (tree still paused): the result menu offers racing the new echo
+## (or recording again if discarded) or leaving race mode.
+func _on_editor_finished(track: EchoTrack) -> void:
 	_editor = null
 	_hud.visible = true
 	state = State.FREE
 	_car.freeze = false
+	_camera.snap()
 	_menu_paused = true
+	_ghost_run = null
+	_track = track
+	_saved = track != null
+	_won = false
 	if track:
 		track.name = _next_name()
 		tracks.append(track)
 		track.save()
 		_add_point(track)
 		_update_minimap_points()
-	if track and race and not track.runs.is_empty():
-		race_echo(track, track.runs[0])
-		ui.toast("%s saved — race your echo!" % track.name, 4.0)
-	elif race:
-		restart()  # Discarded: record again from the same start.
-	else:
-		_close_menu()
-		_camera.snap()
-		if track:
-			ui.toast("%s saved — its neon beacon now marks the start on the map" % track.name, 5.0)
+		_run = track.runs[0]
+		_finish_time = _run.time
+	_open_result_menu()
 
 
 func _next_name() -> String:
@@ -462,7 +462,22 @@ func _open_race_menu() -> void:
 	_open_menu(_track.name.to_upper(), "Racing the %s echo." % EchoRun.format_time(_ghost_run.time), items)
 
 
+## End-of-race menu. Also shown after the editor (`_ghost_run` null): race the freshly saved echo, or record
+## again after a discard, or leave race mode.
 func _open_result_menu() -> void:
+	if _ghost_run == null:
+		if _track:
+			_open_menu("%s SAVED" % _track.name.to_upper(), "%s · %.2f km · %d checkpoints. Its neon beacon now marks the start on the map." % [
+				EchoRun.format_time(_finish_time), _track.length / 1000.0, _track.checkpoints.size() - 2], [
+				{"text": "Race the new echo", "action": race_echo.bind(_track, _run)},
+				{"text": "Exit race mode", "action": exit_race},
+			], exit_race)
+		else:
+			_open_menu("RUN DISCARDED", "The recording was thrown away.", [
+				{"text": "Record again from the same start", "action": restart},
+				{"text": "Exit race mode", "action": exit_race},
+			], exit_race)
+		return
 	var d := _finish_time - _ghost_run.time
 	var items: Array[Dictionary] = []
 	if _won and not _saved:

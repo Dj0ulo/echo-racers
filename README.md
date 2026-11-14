@@ -67,9 +67,10 @@ recorded. Press Y whenever you want and **End the race & place checkpoints**: a 
 - **Style** toggles between neon rings (glowing circle on the ground with a light cylinder) and light gates
   (two neon pillars with sparks). A ring counts as soon as any part of the car touches its cylinder, from any
   direction; a gate must be driven through forwards (any part of the car between the pillars).
-- **Save & race this echo** or **Save & leave race mode**. The course gets a small neon blue marker (post, ground ring, chevrons) at its start, also
-  shown on the minimap (pinned to the rim when far away); the first choice starts racing its echo right away.
-  **Discard run** asks whether to record again from the same start or leave race mode.
+- **Save** closes the editor; the course gets a small neon blue marker (post, ground ring, chevrons) at its start,
+  also shown on the minimap (pinned to the rim when far away). Back in the car view, the end-of-race menu shows the
+  recorded time and offers **Race the new echo** or **Exit race mode**. **Discard** (after a confirm) returns to
+  the car view with **Record again from the same start** or **Exit race mode**.
 
 Drive into a beacon and press Y to see its echoes, best first, and pick the one to race: 3-2-1-GO, then pass every
 checkpoint in order (the next one pulses; it is also the pink marker on the minimap) against a hologram ghost of the
@@ -167,7 +168,8 @@ sets the lap length in game time (default 44; `--duration=0` with `--view`s quit
 `--time=<hour>` (e.g. `--time=17.6` for a sunset, `--time=23` for night) sets the starting time of day and
 `--timescale=<x>` speeds the day/night cycle up (any mode, not only autodrive).
 `--autodrive --echotest [--shots=/abs/dir]` runs the echo mode end to end through simulated menu presses: records a
-14 s run, places checkpoints on its extremes in the editor, saves it, races its ghost (following its line a bit
+14 s run, places checkpoints on its extremes in the editor, saves it, picks "Race the new echo"
+in the result menu, races its ghost (following its line a bit
 faster), prints the splits and result, saves the new echo, then deletes the scratch course (`user://echoes_test`).
 `--autodrive --maptest [--shots=/abs/dir]` opens the world map through its input action, sets a destination 450 m
 ahead (shots `map.png`, then `filament.png` after closing the map), then routes to the middle of every road and
