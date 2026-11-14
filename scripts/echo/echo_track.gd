@@ -5,7 +5,7 @@ extends RefCounted
 
 enum Style { RINGS, GATES }
 
-const VERSION := 1
+const VERSION := 2  ## 2: packed run poses (EchoRun.to_dict). Version 1 files still load.
 
 static var directory := "user://echoes"  ## The echo test switches this to a scratch folder.
 
@@ -92,7 +92,7 @@ static func load_all() -> Array[EchoTrack]:
 
 
 static func _from_dict(d: Dictionary) -> EchoTrack:
-	if int(d.get("version", 0)) != VERSION:
+	if int(d.get("version", 0)) not in [1, VERSION]:
 		return null
 	var t := EchoTrack.new()
 	t.id = d.get("id", "")

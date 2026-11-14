@@ -71,7 +71,8 @@ from the start or exit; reset puts you back on the last checkpoint passed. Beat 
 as a new echo of that course (older ones are kept), then race that new echo straight away. Every race (and restart)
 starts with a full boost gauge. The editor's ghost-car cursor grows with the zoom only up to a cap
 (`EchoEditor.cursor_max_scale`). Courses are saved in `user://echoes/` (one `.echo` file each,
-`~/.local/share/godot/app_userdata/<project>/echoes/` on Linux).
+`~/.local/share/godot/app_userdata/<project>/echoes/` on Linux). Run poses are saved quantized (1 cm,
+~0.1°), delta-coded and zstd-compressed, about 8× smaller than raw floats; old version-1 files still load.
 
 Code: `scripts/echo/` — `echo_manager.gd` (game flow, menus, recording at 30 Hz, checkpoint crossing),
 `echo_editor.gd` (top view), `echo_ui.gd` (side menu, timer, countdown, beeps), `echo_track.gd` / `echo_run.gd`
