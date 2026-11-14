@@ -310,7 +310,7 @@ func _update_ghost() -> void:
 
 func _check_gates(delta: float) -> void:
 	var pos := _car.global_position
-	var u := CheckpointGate.crossing(_track.checkpoints[_next_cp], _track.directions[_next_cp], gate_radius, _prev_pos, pos)
+	var u := CheckpointGate.crossing(_gates[_next_cp].global_position, _track.directions[_next_cp], gate_radius, _prev_pos, pos)
 	if u < 0.0:
 		return
 	var t := _time - delta * (1.0 - u)

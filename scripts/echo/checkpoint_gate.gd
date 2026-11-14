@@ -9,6 +9,8 @@ enum Kind { CHECKPOINT, START, FINISH }
 enum State { UPCOMING, NEXT, PASSED, PREVIEW }
 
 const HEIGHT := 7.0
+const AIR_REACH := 12.0  ## Hitbox top above the gate's ground point (car centre), a few metres over the light wall.
+const GROUND_REACH := 3.0  ## Hitbox bottom below the ground point (slopes, dips under the gate).
 
 var radius := 9.0
 var kind := Kind.CHECKPOINT
@@ -152,20 +154,22 @@ func _add_mesh(mesh: Mesh, pos: Vector3, mat: ShaderMaterial) -> ShaderMaterial:
 	return mat
 
 
-## Fraction (0..1) along the segment a -> b where it crosses checkpoint `center` (car-centre height) going
-## along `dir` within `r` of the centre, or -1 if it does not.
-static func crossing(center: Vector3, dir: Vector3, r: float, a: Vector3, b: Vector3) -> float:
+## Fraction (0..1) along the segment a -> b where it crosses the checkpoint whose ground point is `ground`, going
+## along `dir` within `r` of the centre, or -1 if it does not. The hitbox is a cylinder from a little below the
+## ground up to `AIR_REACH` metres above it, so a car flying over the gate still counts.
+static func crossing(ground: Vector3, dir: Vector3, r: float, a: Vector3, b: Vector3) -> float:
 	var n := Vector3(dir.x, 0.0, dir.z)
 	if n.length_squared() < 1e-6:
 		return -1.0
 	n = n.normalized()
-	var sa := (a - center).dot(n)
-	var sb := (b - center).dot(n)
+	var sa := (a - ground).dot(n)
+	var sb := (b - ground).dot(n)
 	if not (sa < 0.0 and sb >= 0.0):
 		return -1.0
 	var u := sa / (sa - sb)
 	var q := a.lerp(b, u)
-	if Vector2(q.x - center.x, q.z - center.z).length() > r or absf(q.y - center.y) > 8.0:
+	var h := q.y - ground.y
+	if Vector2(q.x - ground.x, q.z - ground.z).length() > r or h < -GROUND_REACH or h > AIR_REACH:
 		return -1.0
 	return u
 
@@ -174,7 +178,7 @@ static func crossing(center: Vector3, dir: Vector3, r: float, a: Vector3, b: Vec
 static func ground_xform(space: PhysicsDirectSpaceState3D, pos: Vector3, dir: Vector3) -> Transform3D:
 	var y := pos.y - 0.7
 	if space:
-		var query := PhysicsRayQueryParameters3D.create(pos + Vector3.UP * 1.0, pos + Vector3.DOWN * 6.0, 1)
+		var query := PhysicsRayQueryParameters3D.create(pos + Vector3.UP * 1.0, pos + Vector3.DOWN * 40.0, 1)
 		var hit := space.intersect_ray(query)
 		if not hit.is_empty():
 			y = (hit.position as Vector3).y
