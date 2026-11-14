@@ -13,7 +13,8 @@ extends Node
 ##   impacts (CarController.impacted) play a light knock for taps and one of several layered crash
 ##   recordings (crunch, metal, debris, glass on the heaviest) for real hits.
 ## - Boost: a nitro loop (turbo whine + hiss + thrust roar) following a spool envelope, a whoosh
-##   when it kicks in and a blow-off "pssh" when it ends.
+##   when it kicks in and a blow-off "pssh" when it ends, plus a warm synthwave drone that swells
+##   in with the boost, climbs in pitch while it is held and cuts out on release.
 ## All players go to a dedicated bus with a hard limiter so nothing clips.
 
 const Synth := preload("res://scripts/vehicle/car_sound_synth.gd")
@@ -40,6 +41,13 @@ const SHIFT_TIME := 0.16
 @export_range(0.0, 2.0) var effects_volume := 1.0
 @export_range(0.0, 2.0) var crash_volume := 1.0
 @export_range(0.0, 1.0) var crash_threshold := 0.3  ## Impacts below this strength are light knocks.
+@export_range(0.0, 2.0) var boost_drone_volume := 1.0  ## Synthwave drone while boosting.
+@export var boost_drone_fade_in := 0.4   ## Seconds to swell to full level.
+@export var boost_drone_fade_out := 0.15 ## Seconds to cut out once the boost is released.
+@export var boost_drone_bend := 0.06     ## Pitch rises by this fraction while swelling in.
+@export var boost_drone_rise_semitones := 7.0  ## Pitch climbs toward this while the boost is held...
+@export var boost_drone_rise_time := 2.0       ## ...with this time constant (s).
+@export var boost_drone_release_dip := 0.08    ## Pitch drops by this fraction as it cuts out.
 
 var rpm := IDLE_RPM
 var gear := 1                    ## 0 = reverse, 1..6 forward.
@@ -98,6 +106,9 @@ var _release: AudioStreamPlayer
 var _boost_start: AudioStreamPlayer
 var _crash: AudioStreamPlayer
 var _crash_heavy: AudioStreamPlayer
+var _drone: AudioStreamPlayer
+var _drone_level := 0.0  ## 0..1 envelope.
+var _drone_rise := 0.0   ## 0..1, how far the held-boost pitch climb has gone.
 var _blow_off: AudioStreamPlayer
 
 # Event detection (physics rate)
@@ -145,6 +156,7 @@ func _ready() -> void:
 	_blow_off = _make_player(&"BlowOff", Synth.blow_off(), 2)
 	_crash = _make_player(&"Crash", _randomizer([Synth.crash(0, false), Synth.crash(1, false), Synth.crash(2, false)]), 3)
 	_crash_heavy = _make_player(&"CrashHeavy", _randomizer([Synth.crash(3, true), Synth.crash(4, true)]), 2)
+	_drone = _make_player(&"BoostDrone", Synth.boost_drone(), 1)
 	_car.impacted.connect(_on_impacted)
 
 
@@ -477,6 +489,7 @@ func _update_loops(delta: float) -> void:
 			_play(_boost_start, boost_volume * 0.42, randf_range(0.95, 1.05))
 		elif _boost_spool > 0.3:
 			_play(_blow_off, boost_volume * 0.3 * _boost_spool, randf_range(0.95, 1.1))
+	_update_drone(boosting, delta)
 
 	# Handbrake ratchet / release.
 	if inp.handbrake != _handbrake_was:
@@ -506,6 +519,33 @@ func _play(p: AudioStreamPlayer, gain: float, pitch: float) -> void:
 
 
 # --- Events (thumps, landings, impacts) --------------------------------------------------------
+
+## Synthwave drone: swells in (small upward bend) when the boost starts, keeps climbing in pitch
+## while it is held, and cuts out quickly with a short downward dip on release.
+func _update_drone(boosting: bool, delta: float) -> void:
+	if boosting:
+		if not _drone.playing:
+			_drone.volume_db = -80.0
+			_drone_rise = 0.0
+			_drone.play(randf() * _drone.stream.get_length())
+		_drone_rise += (1.0 - _drone_rise) * (1.0 - exp(-delta / maxf(boost_drone_rise_time, 0.01)))
+	var rate := 1.0 / maxf(boost_drone_fade_in if boosting else boost_drone_fade_out, 0.01)
+	_drone_level = move_toward(_drone_level, 1.0 if boosting else 0.0, rate * delta)
+	if _drone_level <= 0.0:
+		if _drone.playing:
+			_drone.stop()
+		return
+	var pitch := pow(2.0, boost_drone_rise_semitones * _drone_rise / 12.0)
+	var gain := _drone_level
+	if boosting:
+		var shaped := _drone_level * _drone_level * (3.0 - 2.0 * _drone_level)  # Smoothstep swell.
+		gain = shaped
+		pitch *= 1.0 - boost_drone_bend * (1.0 - shaped)
+	else:
+		pitch *= 1.0 - boost_drone_release_dip * (1.0 - _drone_level)
+	_drone.volume_db = linear_to_db(0.45 * boost_drone_volume * gain)
+	_drone.pitch_scale = pitch
+
 
 ## Body impact (CarController.impacted): `strength` 0..1, `heaviness` 0..1 from the mass of what
 ## was hit (lower, duller crunch). Light taps get a knock, real hits a layered crash.

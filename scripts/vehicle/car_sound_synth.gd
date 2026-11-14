@@ -193,6 +193,64 @@ static func blow_off() -> AudioStreamWAV:
 	return make_wav(out, false)
 
 
+const DRONE_LOOP := 4.0  ## Seconds; every frequency below is a multiple of 1/DRONE_LOOP (seamless).
+
+
+## Boost drone: a warm, sustained analog-style "hummm" on A (55 Hz) - a chorus of slightly
+## detuned round saw voices (root, octave, a quiet fifth and upper octave) over a sub sine, with a slow breathing
+## brightness sweep. Additive single-cycle tables (dark/bright, soft harmonic roll-off) scanned
+## at whole-cycle-per-loop frequencies, so the loop is seamless without any crossfade.
+static func boost_drone() -> AudioStreamWAV:
+	var size := 1024
+	var dark := _harmonic_table(size, 6, 2.0)
+	var bright := _harmonic_table(size, 14, 1.3)
+	# [Hz, gain]: chorus pairs beat slowly (0.25-0.5 Hz apart) for the "moving" analog feel.
+	var voices: Array[Vector2] = [
+		Vector2(54.75, 0.5), Vector2(55.25, 0.5), Vector2(55.0, 0.35),
+		Vector2(109.75, 0.42), Vector2(110.25, 0.42),
+		Vector2(82.5, 0.14), Vector2(82.75, 0.14),
+		Vector2(219.75, 0.16), Vector2(220.25, 0.16),
+	]
+	var n := int(DRONE_LOOP * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var ph := PackedFloat32Array()
+	ph.resize(voices.size())
+	for v in voices.size():
+		ph[v] = fmod(float(v) * 0.37, 1.0)
+	for i in n:
+		var t := float(i) / RATE
+		# Two LFOs (period 4 s and 2 s) shape the brightness: slow, uneven breathing.
+		var mix := clampf(0.5 + 0.28 * sin(TAU * t / DRONE_LOOP) + 0.1 * sin(TAU * 2.0 * t / DRONE_LOOP + 1.0), 0.0, 1.0)
+		var s := 0.0
+		for v in voices.size():
+			var idx := ph[v] * size
+			var k := mini(int(idx), size - 1)
+			var fr := idx - k
+			var d := lerpf(dark[k], dark[k + 1], fr)
+			var b := lerpf(bright[k], bright[k + 1], fr)
+			s += lerpf(d, b, mix) * voices[v].y
+			ph[v] = fmod(ph[v] + voices[v].x / RATE, 1.0)
+		s += sin(TAU * 27.5 * t) * 0.2
+		out[i] = tanh(s * 0.9)
+	_normalize(out, 0.9)
+	return make_wav(out, true)
+
+
+## Single-cycle table (size + 1 entries) of `harmonics` sine partials with 1/k^rolloff amplitudes.
+static func _harmonic_table(size: int, harmonics: int, rolloff: float) -> PackedFloat32Array:
+	var tbl := PackedFloat32Array()
+	tbl.resize(size + 1)
+	for i in size + 1:
+		var x := TAU * float(i) / size
+		var v := 0.0
+		for k in range(1, harmonics + 1):
+			v += sin(k * x) / pow(k, rolloff)
+		tbl[i] = v
+	_normalize(tbl, 1.0)
+	return tbl
+
+
 # --- One-shots ---------------------------------------------------------------------------------
 
 ## Suspension thump: a falling low sine with a short soft knock on top.
