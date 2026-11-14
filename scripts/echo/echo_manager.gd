@@ -9,6 +9,7 @@ enum State { FREE, COUNTDOWN, RECORDING, RACING, FINISHED, EDITING }
 
 @export var countdown_time := 3.0
 @export var gate_radius := 9.0        ## Checkpoint half-width: how far from its centre the car may pass.
+@export var car_half_size := Vector2(0.88, 2.15)  ## Car footprint (half width, half length): any part in counts.
 @export var min_run_seconds := 3.0    ## Shortest recording that can be turned into an echo.
 @export var result_menu_delay := 1.6  ## Seconds between crossing the finish and the result menu.
 
@@ -310,7 +311,8 @@ func _update_ghost() -> void:
 
 func _check_gates(delta: float) -> void:
 	var pos := _car.global_position
-	var u := CheckpointGate.crossing(_gates[_next_cp].global_position, _track.directions[_next_cp], gate_radius, _prev_pos, pos)
+	var u := CheckpointGate.crossing(_gates[_next_cp].global_position, _track.directions[_next_cp], gate_radius,
+		_prev_pos, pos, car_half_size, -_car.global_basis.z)
 	if u < 0.0:
 		return
 	var t := _time - delta * (1.0 - u)

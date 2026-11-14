@@ -3,7 +3,7 @@ extends Node3D
 ## One neon checkpoint of an echo course. RINGS: a glowing circle on the ground with a translucent light
 ## cylinder rising from it. GATES: two neon light pillars either side of the racing line, with a few sparks.
 ## The origin sits on the ground, -Z along the direction of travel; the car passes it by crossing the plane
-## through its centre within `radius` (see `crossing`).
+## through its centre with any part of its body within `radius` (see `crossing`).
 
 enum Kind { CHECKPOINT, START, FINISH }
 enum State { UPCOMING, NEXT, PASSED, PREVIEW }
@@ -156,8 +156,11 @@ func _add_mesh(mesh: Mesh, pos: Vector3, mat: ShaderMaterial) -> ShaderMaterial:
 
 ## Fraction (0..1) along the segment a -> b where it crosses the checkpoint whose ground point is `ground`, going
 ## along `dir` within `r` of the centre, or -1 if it does not. The hitbox is a cylinder from a little below the
-## ground up to `AIR_REACH` metres above it, so a car flying over the gate still counts.
-static func crossing(ground: Vector3, dir: Vector3, r: float, a: Vector3, b: Vector3) -> float:
+## ground up to `AIR_REACH` metres above it, so a car flying over the gate still counts. `half_size` (x: half
+## width, y: half length) and `car_fwd` give the car's footprint: it counts as soon as any part of the car is
+## inside the circle, i.e. `r` grows by the footprint's extent across the crossing plane.
+static func crossing(ground: Vector3, dir: Vector3, r: float, a: Vector3, b: Vector3,
+		half_size := Vector2.ZERO, car_fwd := Vector3.ZERO) -> float:
 	var n := Vector3(dir.x, 0.0, dir.z)
 	if n.length_squared() < 1e-6:
 		return -1.0
@@ -169,6 +172,12 @@ static func crossing(ground: Vector3, dir: Vector3, r: float, a: Vector3, b: Vec
 	var u := sa / (sa - sb)
 	var q := a.lerp(b, u)
 	var h := q.y - ground.y
+	var f := Vector2(car_fwd.x, car_fwd.z)
+	if f.length_squared() > 1e-6:
+		# Footprint extent along the plane: |cos| of the heading vs. the gate direction weighs the half width,
+		# |sin| the half length (a car crossing at an angle sweeps a wider band).
+		var c := absf(f.normalized().dot(Vector2(n.x, n.z)))
+		r += half_size.x * c + half_size.y * sqrt(maxf(0.0, 1.0 - c * c))
 	if Vector2(q.x - ground.x, q.z - ground.z).length() > r or h < -GROUND_REACH or h > AIR_REACH:
 		return -1.0
 	return u
