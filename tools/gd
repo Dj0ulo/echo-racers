@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+## Token-cheap wrapper around the Godot binary for agents. Always runs from the repo root, always filters output.
+##
+## Usage: tools/gd <command> [args...]
+##   check [--fast] [files.gd...]  parse check (--check-only --script, ~0.4 s each) of the given files, default all
+##                                 changed/untracked .gd files; then the full headless load (~8 s) unless --fast.
+##                                 Prints "OK" when clean.
+##   drive [args]                  headless autodrive --quiet (physics only, no screenshots)
+##   shots [args]                  display autodrive --quiet, clears/recreates $SHOTS (default /tmp/er_shots),
+##                                 lists the PNGs saved. e.g. `shots --view=overview --duration=0`
+##   echotest | maptest            end-to-end echo / world-map flows, with shots (display)
+##   crashtest                     scripted crashes against traffic (headless)
+##   import                        re-import after adding class_name scripts or assets
+## Args after the command go to the game (after `--`), see the header of scripts/debug/autodrive.gd
+## (--duration=<s>, --road=, --traffic, --view=, --shot-width=, ...).
+## Env: G=<godot binary> (default ~/Applications/Godot-stable_linux.x86_64), SHOTS=<dir>, DISPLAY (default :0 for
+## display runs), GD_FLAGS="--disable-vsync ..." extra engine flags placed before `--`.
+set -u
+cd "$(dirname "$(readlink -f "$0")")/.." || exit 1
+G=${G:-$HOME/Applications/Godot-stable_linux.x86_64}
+SHOTS=${SHOTS:-/tmp/er_shots}
+FLAGS=${GD_FLAGS:-}
+KEEP='ERROR|SCRIPT|Parse|WARNING|Saved|Rendering|Autodrive done|^---|Crash test|Echo test|Map test|Route '
+
+filter() { grep -E "$KEEP" | grep -v 'ObjectDB instances were leaked' | tail -40; }
+
+full_load() {
+	local out
+	out=$(timeout 120 "$G" --headless --path . --quit-after 60 2>&1 | grep -E 'ERROR|SCRIPT|Parse|WARNING' | grep -v 'ObjectDB instances' | head -20)
+	[ -z "$out" ] || { echo "$out"; return 1; }
+}
+
+cmd=${1:-}; [ $# -gt 0 ] && shift
+case "$cmd" in
+check)
+	fast=0; files=()
+	for a in "$@"; do [ "$a" = --fast ] && fast=1 || files+=("$a"); done
+	if [ ${#files[@]} -eq 0 ]; then
+		mapfile -t files < <({ git diff HEAD --name-only --diff-filter=d; git ls-files --others --exclude-standard; } | grep '\.gd$' | sort -u)
+	fi
+	bad=0
+	for f in "${files[@]}"; do
+		out=$(timeout 60 "$G" --headless --path . --check-only --script "$f" 2>&1 | grep -E 'ERROR|SCRIPT|Parse|WARNING' | head -10)
+		[ -z "$out" ] || { echo "== $f"; echo "$out"; bad=1; }
+	done
+	[ $bad -eq 0 ] || exit 1
+	[ $fast -eq 1 ] || full_load || exit 1
+	echo "OK (${#files[@]} file(s) parsed$([ $fast -eq 1 ] || echo ', full load clean'))"
+	;;
+drive)
+	timeout 400 "$G" --headless $FLAGS --path . -- --autodrive --quiet "$@" 2>&1 | filter
+	;;
+shots|echotest|maptest)
+	rm -rf "$SHOTS"; mkdir -p "$SHOTS"
+	extra=()
+	[ "$cmd" = echotest ] && extra=(--echotest)
+	[ "$cmd" = maptest ] && extra=(--maptest)
+	DISPLAY=${DISPLAY:-:0} timeout 300 "$G" $FLAGS --path . -- --autodrive --quiet "${extra[@]}" --shots="$SHOTS" "$@" 2>&1 | filter
+	ls "$SHOTS"/*.png 2>/dev/null | sed 's/^/png: /'
+	;;
+crashtest)
+	timeout 300 "$G" --headless $FLAGS --path . -- --autodrive --quiet --crashtest "$@" 2>&1 | filter
+	;;
+import)
+	timeout 200 "$G" --headless --path . --import >/dev/null 2>&1; echo "import done (exit $?)"
+	;;
+*)
+	sed -n '2,/^set -u/p' "$0" | grep '^##' | sed 's/^## \?//'
+	exit 2
+	;;
+esac

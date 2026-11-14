@@ -43,6 +43,7 @@ tabs, typed GDScript, `##` doc comment at the top of each script.
 - `scripts/debug/echo_test.gd` `--autodrive --echotest`: whole echo flow end to end (scratch save folder).
 - `scripts/debug/map_test.gd` `--autodrive --maptest`: world map + GPS route/filament, routes to every road.
 - `scripts/debug/autodrive.gd` autopilot lap, drift scenarios, `--crashtest`, screenshots (flags in its header).
+- `tools/gd` agent wrapper for Godot: fast/full checks, autodrive, shots, echo/map/crash tests; always filters output.
 - `shaders/` road.gdshader (markings), grass.gdshader (sway), speed_overlay.gdshader, speed_streak.gdshader.
 
 ## Key scenes
@@ -51,22 +52,24 @@ tabs, typed GDScript, `##` doc comment at the top of each script.
 - `scenes/car.tscn` the player car (CarController + visuals + audio + input).
 
 ## Running
-Binary: `~/Applications/Godot-stable_linux.x86_64` (call it `$G`). Run from the repo root. Full recipes: the
-`playtest` skill (`.claude/skills/playtest/SKILL.md`); use it for any run/screenshot/error check.
-- Headless check (no display needed, shows script/parse errors): `timeout 120 $G --headless --path . --quit-after 60 2>&1 | grep -E 'ERROR|SCRIPT|Parse' | head`
-- Autodrive/screenshots need a display: prefix `DISPLAY=:0`, add `--disable-vsync` for FPS numbers. Headless autodrive
-  works for physics checks (no shots).
+Use `tools/gd` (usage in its header; the `playtest` skill, `.claude/skills/playtest/SKILL.md`, has the recipes):
+`tools/gd check --fast` (0.4 s/file) then `tools/gd check` (full load, ~8 s), `tools/gd drive|shots [--duration=<s>] ...`,
+`echotest`, `maptest`, `crashtest`, `import`. Binary override `G=`, extra engine flags `GD_FLAGS="--disable-vsync"`.
+- Prefer short runs: `--duration=0` with `--view`s for a still, `--duration=13` for one shot (full lap ~50 s).
 - Strict warning check of one file: write `override.cfg` containing
   `[debug]` / `gdscript/warnings/treat_warnings_as_errors=true`, run
   `$G --headless --path . --check-only --script <file.gd>`, then delete `override.cfg` (never commit it).
-- After adding new `class_name` scripts or assets run `$G --headless --path . --import` once.
+- After adding new `class_name` scripts or assets run `tools/gd import` once.
 - On the hybrid-GPU laptop the README's `__NV_PRIME_RENDER_OFFLOAD=1 __VK_LAYER_NV_optimus=NVIDIA_only __GLX_VENDOR_LIBRARY_NAME=nvidia` is only needed for interactive play.
 
 ## Working rules for agents
 - Do not cat whole scripts (many are 15-28k chars). Use `grep -n`, then `sed -n 'A,Bp'` line ranges. The map above
   says where things live; `grep -n '^class_name\|^##' -m5 <file>` gives a file's purpose.
-- Read screenshots sparingly: at most 2-3 per check, only the ones that matter. `--shots` images are 960 px wide
+- Read screenshots sparingly: at most 2-3 per check, only the ones that matter. `--shots` images are 640 px wide
   by default (`--shot-width=` to change). Do not screenshot just to confirm something a log line can show.
 - Never let Godot output flood the context: pipe through `grep -E ... | tail -40` or pass `--quiet` to autodrive.
 - One feature per subagent/session; keep tunables as `@export` vars and update `README.md` when behaviour or flags change.
 - Do not commit scratch files (`override.cfg`, `scripts/debug/*_tmp.gd`); use `/tmp` for outputs.
+- Several independent bullets/features in one request: do not implement them all in one long main-session context.
+  Dispatch one subagent per bullet (sequentially in the same tree, or in worktrees if parallel and the files do not
+  overlap); the main session only briefs, reviews and commits. Suggest `/clear` between unrelated follow-ups.

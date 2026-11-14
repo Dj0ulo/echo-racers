@@ -11,7 +11,9 @@ extends Node
 ## A simple pure-pursuit autopilot drives along the road (with handbrake drift scenarios and a
 ## brake/reverse test), prints handling telemetry, optionally saves screenshots, then quits.
 ##
-## `--shots` images are downscaled to `--shot-width=<px>` (default 960) wide, keeping the aspect ratio.
+## `--shots` images are downscaled to `--shot-width=<px>` (default 640) wide, keeping the aspect ratio.
+## `--duration=<s>` sets the lap length in game time (default 44; shots/drift events scheduled later just don't
+## happen, the summary still prints; `--duration=0` with `--view`s quits right after the views are saved).
 ## `--quiet` suppresses the periodic telemetry lines (1 Hz lap, 10 Hz drift events, crash-test timelines);
 ## summaries, "Saved" lines and errors are still printed.
 ##
@@ -26,7 +28,7 @@ extends Node
 ##  - "spin test": long handbrake pull at speed with full lock held INTO the slide and full throttle
 ##                 (no counter-steer) — the car must not spin out.
 
-const DURATION := 44.0
+const DURATION := 44.0  # Default lap length (game seconds), `--duration=<s>` overrides.
 const BRAKE_TEST_TIME := 38.0
 const SHOT_TIMES := [12.0, 22.5, 23.0, 30.0]
 
@@ -67,7 +69,8 @@ var _view_cam: Camera3D
 var _view_frame := 0
 var _route := false
 var _quiet := false
-var _shot_width := 960
+var _shot_width := 640
+var _duration := DURATION
 
 ## Crash test scenarios (highway, carriageway with increasing distance). Distances are relative to the
 ## player's start; "lat" shifts the traffic car sideways off its lane centre; "yaw" is relative to the lane.
@@ -111,6 +114,8 @@ func _ready() -> void:
 			_shots_dir = arg.trim_prefix("--shots=")
 		elif arg.begins_with("--shot-width="):
 			_shot_width = maxi(int(arg.trim_prefix("--shot-width=")), 16)
+		elif arg.begins_with("--duration="):
+			_duration = maxf(float(arg.trim_prefix("--duration=")), 0.0)
 		elif arg == "--quiet":
 			_quiet = true
 		elif arg.begins_with("--view="):
@@ -294,7 +299,7 @@ func _physics_process(delta: float) -> void:
 			print("t=%4.1f v=%6.1f km/h off=%5.1f m slip=%6.1f deg yaw=%5.2f up.y=%.2f wheels=%d drift=%s steer=%5.2f" % [
 				_time, speed * 3.6, off_road, slip, _car.angular_velocity.y, _car.global_basis.y.y,
 				_car.grounded_wheels, _car.is_drifting, steer])
-	if _time > DURATION:
+	if _time > _duration and (_views.is_empty() or _shots_dir.is_empty()):  # Views pause the tree first.
 		print("Rendering: average %.0f FPS, worst frame %.0f FPS" % [_frames / maxf(_time - 2.0, 0.001), _min_fps])
 		_end_event()
 		for line in _summaries:

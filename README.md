@@ -155,6 +155,9 @@ prints pre/post velocities, yaw rates, the hit car's peak air height and its rec
 `--view=x,y,z,tx,ty,tz` (repeatable, with `--shots`) first saves fog-free stills from a free camera at `x,y,z`
 looking at `tx,ty,tz`; `--view=overview` shows the whole map. `--route=highway,ramp_north_off1,link_north,ramp_north_on2,highway`
 drives through several roads in turn (here: exit the highway, cross the bridge, rejoin the other carriageway).
+`--shots` images are 640 px wide (`--shot-width=<px>`); `--quiet` drops the periodic telemetry lines. `--duration=<s>`
+sets the lap length in game time (default 44; `--duration=0` with `--view`s quits right after the stills).
+`tools/gd` wraps these runs with filtered output (see its header).
 `--time=<hour>` (e.g. `--time=17.6` for a sunset, `--time=23` for night) sets the starting time of day and
 `--timescale=<x>` speeds the day/night cycle up (any mode, not only autodrive).
 `--autodrive --echotest [--shots=/abs/dir]` runs the echo mode end to end through simulated menu presses: records a

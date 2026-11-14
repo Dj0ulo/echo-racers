@@ -5,42 +5,42 @@ description: Run Echo Racers headless or in autodrive, take screenshots to verif
 
 # Playtest
 
-All commands run from the repo root. `G=~/Applications/Godot-stable_linux.x86_64`. Always filter output.
+Use `tools/gd` (header documents it): runs from the repo root, bakes in the binary (`G` env override), timeouts,
+`DISPLAY=:0` and always filters output. Extra args go to the game; engine flags via `GD_FLAGS="--disable-vsync"`.
 
-## (a) Headless parse/error check (no display)
+## (a) Check errors: fast first, then full
 ```sh
-G=~/Applications/Godot-stable_linux.x86_64
-timeout 120 $G --headless --path . --quit-after 60 2>&1 | grep -E 'ERROR|SCRIPT|Parse|WARNING' | head -20
+tools/gd check --fast   # ~0.4 s/file, --check-only on changed/untracked .gd files (parse/type errors)
+tools/gd check          # same + full headless load (~8 s; catches unknown members on typed vars)
 ```
-No output means the project loads cleanly. After adding a new `class_name` or asset, run `--import` once first:
-`timeout 200 $G --headless --path . --import >/dev/null 2>&1`.
-For a headless physics check, add `-- --autodrive --quiet` and grep `ERROR|SCRIPT|Rendering|max speed`.
+Prints one `OK` line when clean. After adding a `class_name` or asset run `tools/gd import` once.
 
-## (b) Autodrive with screenshots (needs a display)
+## (b) Autodrive
 ```sh
-rm -rf /tmp/er_shots && mkdir -p /tmp/er_shots
-DISPLAY=:0 timeout 200 $G --path . -- --autodrive --quiet --shots=/tmp/er_shots 2>&1 \
-  | grep -E 'ERROR|SCRIPT|Saved|Rendering|Autodrive done|---|Crash test' | tail -40
+tools/gd drive --duration=10           # headless physics check, no shots
+tools/gd shots                         # display, 44 s lap, shots at 12/22.5/23/30 s in /tmp/er_shots (SHOTS=...)
+tools/gd shots --view=overview --duration=0    # just the still(s), quits right after (~10 s)
+tools/gd shots --duration=13           # one shot (the 12 s one)
 ```
-Takes ~45 s of game time (`DURATION`), shots at 12/22.5/23/30 s (`SHOT_TIMES`), 960 px wide
-(`--shot-width=<px>` to change). Add `--traffic` to spawn traffic, `--disable-vsync` before `--` for real FPS.
+Shots are 640 px wide (`--shot-width=<px>`). Add `--traffic` for traffic. `--duration=<s>` shortens the lap; later
+events/shots just don't happen. Prefer short durations: a full lap is ~50 s wall time.
 
 ## (c) Other modes (flags documented in the header of scripts/debug/autodrive.gd)
 ```sh
 # another road of the network (highway: inner lane, up to 260 km/h); also link_north, mountain_road, ...
-DISPLAY=:0 timeout 200 $G --path . -- --autodrive --quiet --road=highway --traffic --shots=/tmp/er_shots
+tools/gd shots --road=highway --traffic
 # several roads in turn: exit the highway, cross the bridge, rejoin the other carriageway
-timeout 400 $G --headless --path . -- --autodrive --quiet --route=highway,ramp_north_off1,link_north,ramp_north_on2,highway
+tools/gd drive --route=highway,ramp_north_off1,link_north,ramp_north_on2,highway
 # fog-free stills from a free camera (x,y,z looking at tx,ty,tz), saved as view_<k>.png before the drive
-DISPLAY=:0 timeout 200 $G --path . -- --autodrive --quiet --shots=/tmp/er_shots --view=overview --view=100,30,-900,100,0,-700
+tools/gd shots --duration=0 --view=overview --view=100,30,-900,100,0,-700
 # echo mode end to end (record, editor, save, race the ghost); shots echo_editor*.png, echo_race.png
-DISPLAY=:0 timeout 200 $G --path . -- --autodrive --quiet --echotest --shots=/tmp/er_shots 2>&1 | grep -E 'ERROR|SCRIPT|Echo test|Saved'
+tools/gd echotest
 # scripted crashes against traffic (prints pre/post velocities; --quiet drops the per-0.25 s timelines)
-timeout 300 $G --headless --path . -- --autodrive --crashtest 2>&1 | grep -E 'ERROR|SCRIPT|Crash test|---' | tail -30
+tools/gd crashtest
 ```
 
 ## Output and screenshots
-- Never run Godot unfiltered: without `--quiet` autodrive prints 1 Hz lap lines and 10 Hz drift/crash timelines
+- Only bypass `tools/gd` if you must; never run Godot unfiltered: without `--quiet` autodrive prints 1 Hz lap lines and 10 Hz drift/crash timelines
   (can be ~20k tokens). Keep `| grep -E '...' | tail -40`.
 - Useful lines: `ERROR`/`SCRIPT ERROR` (failures), `Saved <path>`, `Rendering: average N FPS`,
   `--- drift event ...` summaries, `Autodrive done: max speed ...`, `Crash test '...': closing ...`.
