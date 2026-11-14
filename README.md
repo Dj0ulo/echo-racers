@@ -26,7 +26,7 @@ __NV_PRIME_RENDER_OFFLOAD=1 __VK_LAYER_NV_optimus=NVIDIA_only __GLX_VENDOR_LIBRA
 | Steer | A, D / Left, Right | Left stick |
 | Handbrake (drift) | Space | X / Square |
 | Boost (nitro) | Shift | A / Cross |
-| Reset car to road (in an echo race: last checkpoint) | R | B / Circle |
+| Reset car to road (in an echo race: last checkpoint) | R | hold LT + RT for 2 s |
 | Map / GPS destination | M | Back / Select |
 | Echo race menu | Tab | Y / Triangle |
 | Look around (springs back on release) | — | Right stick (±90°) |

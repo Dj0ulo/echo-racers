@@ -14,6 +14,10 @@ var echo: EchoManager
 var gps: Gps
 var world_map: WorldMap
 
+@export var trigger_reset_hold := 2.0      ## Seconds LT + RT must be held together to reset the car.
+@export var trigger_reset_threshold := 0.8 ## How far both triggers must be pulled to count as held.
+var _trigger_hold := 0.0
+
 
 func _ready() -> void:
 	car.reset_to(world.get_spawn_transform())
@@ -65,8 +69,25 @@ func _unhandled_input(event: InputEvent) -> void:
 		reset_car()
 
 
-func _physics_process(_delta: float) -> void:
+func _physics_process(delta: float) -> void:
 	if car.global_position.y < -80.0:
+		reset_car()
+	_update_trigger_reset(delta)
+
+
+## Gamepad reset: hold LT and RT together for `trigger_reset_hold` seconds (only while driving, so the
+## triggers keep zooming in the world map and the echo editor).
+func _update_trigger_reset(delta: float) -> void:
+	var driving := not get_tree().paused and car.input != null and car.input.player_controlled \
+			and not (echo and echo.state == EchoManager.State.EDITING)
+	var held := VehicleInput.joy_axis(JOY_AXIS_TRIGGER_LEFT) > trigger_reset_threshold \
+			and VehicleInput.joy_axis(JOY_AXIS_TRIGGER_RIGHT) > trigger_reset_threshold
+	if not (driving and held):
+		_trigger_hold = 0.0
+		return
+	_trigger_hold += delta
+	if _trigger_hold >= trigger_reset_hold:
+		_trigger_hold = -INF  # Fire once; release the triggers to arm it again.
 		reset_car()
 
 
