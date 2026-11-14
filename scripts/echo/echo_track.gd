@@ -71,6 +71,27 @@ static func new_id() -> String:
 	return "%d_%04d" % [int(Time.get_unix_time_from_system()), randi() % 10000]
 
 
+## Older saves measured each checkpoint's direction over +-3 samples, which flipped it when the car stood still
+## there (typically the finish, stopped on a slope). Recompute them from the run the track was recorded from:
+## the one whose split samples sit exactly on the checkpoints.
+func _repair_directions() -> void:
+	if directions.size() != checkpoints.size():
+		return
+	for r in runs:
+		if r.splits.size() != checkpoints.size():
+			continue
+		var idx: Array[int] = []
+		for k in checkpoints.size():
+			var s := roundi(r.splits[k] * EchoRun.RATE)
+			if s >= r.sample_count() or r.positions[s].distance_to(checkpoints[k]) > 0.05:
+				break
+			idx.append(s)
+		if idx.size() == checkpoints.size():
+			for k in range(1, idx.size()):
+				directions[k] = r.direction_at(idx[k])
+			return
+
+
 static func load_all() -> Array[EchoTrack]:
 	var out: Array[EchoTrack] = []
 	var dir := DirAccess.open(directory)
@@ -107,5 +128,6 @@ static func _from_dict(d: Dictionary) -> EchoTrack:
 			t.runs.append(EchoRun.from_dict(rd))
 	if t.id.is_empty() or t.checkpoints.size() < 2 or t.runs.is_empty():
 		return null
+	t._repair_directions()
 	t.runs.sort_custom(func(a: EchoRun, b: EchoRun) -> bool: return a.time < b.time)
 	return t

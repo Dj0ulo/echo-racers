@@ -27,6 +27,38 @@ func duration() -> float:
 	return maxf(positions.size() - 1, 0) / RATE
 
 
+## Horizontal travel direction through sample `i`: from the last sample at least `reach` metres behind it to the
+## first one `reach` metres ahead (either side may be missing at the ends). Measuring over a distance rather
+## than a few samples keeps a car stopped (or rolling back on a slope) at the finish from flipping it.
+func direction_at(i: int, reach := 6.0) -> Vector3:
+	var n := positions.size()
+	if n == 0:
+		return Vector3.FORWARD
+	i = clampi(i, 0, n - 1)
+	var c := positions[i]
+	var a := c
+	for k in range(i - 1, -1, -1):
+		a = positions[k]
+		if _flat_dist(a, c) >= reach:
+			break
+	var b := c
+	for k in range(i + 1, n):
+		b = positions[k]
+		if _flat_dist(b, c) >= reach:
+			break
+	var d := b - a
+	d.y = 0.0
+	if d.length_squared() > 1.0:
+		return d.normalized()
+	var f := -transform_at(i / RATE).basis.z
+	f.y = 0.0
+	return f.normalized() if f.length_squared() > 1e-6 else Vector3.FORWARD
+
+
+static func _flat_dist(a: Vector3, b: Vector3) -> float:
+	return Vector2(a.x - b.x, a.z - b.z).length()
+
+
 ## Interpolated pose at `t` seconds (clamped to the recording).
 func transform_at(t: float) -> Transform3D:
 	var n := positions.size()

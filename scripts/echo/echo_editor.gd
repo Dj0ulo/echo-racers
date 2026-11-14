@@ -310,10 +310,7 @@ func _jump(dir: int) -> void:
 
 
 func _direction_at(i: int) -> Vector3:
-	var n := run.sample_count()
-	var d := run.positions[mini(i + 3, n - 1)] - run.positions[maxi(i - 3, 0)]
-	d.y = 0.0
-	return d.normalized() if d.length_squared() > 1e-6 else -run.transform_at(i / EchoRun.RATE).basis.z
+	return run.direction_at(i)
 
 
 func _changed() -> void:
