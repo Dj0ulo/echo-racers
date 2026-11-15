@@ -145,12 +145,19 @@ it runs out the delivery is cancelled: no pay, the beam, pin and GPS route are c
 (`deliveries_failed` stat). Reward = route km (including the straight field legs) × R⃒160 × a random factor in [0.85, 1.2], rounded to R⃒5 (about
 R⃒250 for a 1.6 km delivery). While a delivery is active, the free-roam Y menu can point the GPS back to the
 drop-off (after you set another destination on the map) or abandon the delivery (no pay, no penalty).
+**Tips**: arrive with at least 30 % of the time limit left (`tip_min_early`) and the customer may tip you, paid on
+top of the reward and shown in the banner ("+R⃒155  + R⃒20 tip"). The chance grows from 30 % at that threshold to 80 %
+with 75 % of the time left (`tip_full_early`), and so does the size: 5 % to 20 % of the reward (± 4 points of
+randomness), now and then (8 % of tips) a generous 25-30 %, rounded to R⃒5 and at least R⃒5. On a R⃒250 delivery
+that is about R⃒15 just early enough, R⃒40-50 very early, R⃒65-75 when generous. No tip when you arrive late in
+the clock. The wallet totals them (`tips` amount and `tips_count` stats).
 Missions are not saved: open offers and the active delivery are gone after a restart (the money earned is kept).
 The wallet counts completed deliveries (`deliveries` stat).
 
 Code: `scripts/game/missions.gd` (`MissionManager`, all tunables exported: `first_offer_delay`,
 `spawn_interval_min/max`, `max_offers`, `offer_lifetime`, `min_offer_distance`, `pickup_radius`,
-`pickup_speed_kmh`, `delivery_radius`, `min_route`, `max_route`, `pay_per_km`, `pay_random_min/max`, `pay_step`, `time_base`, `time_avg_speed_kmh`, `time_step`, `time_warning`, `time_beep`, `offroad_chance`, `offroad_min_distance`, `offroad_max_distance`,
+`pickup_speed_kmh`, `delivery_radius`, `min_route`, `max_route`, `pay_per_km`, `pay_random_min/max`, `pay_step`, `time_base`, `time_avg_speed_kmh`, `time_step`, `time_warning`, `time_beep`, `tip_min_early`, `tip_full_early`, `tip_chance_min/max`,
+`tip_percent_min/max`, `tip_percent_jitter`, `tip_generous_chance`, `tip_generous_min/max`, `tip_step`, `tip_min`, `offroad_chance`, `offroad_min_distance`, `offroad_max_distance`,
 `offroad_max_slope`, `offroad_clearance`),
 `scripts/game/mission_marker.gd` (`MissionMarker`, the lime beacon). Debug runs (`--autodrive`) get no random
 offers.

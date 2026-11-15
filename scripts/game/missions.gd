@@ -13,7 +13,8 @@ extends Node
 ## driving there (free roam) pays route km (field legs included) × `pay_per_km` × a random factor, through the
 ## Wallet. It must be delivered within the offer's time limit (`time_base` + route at `time_avg_speed_kmh`, rounded
 ## up to `time_step`), counted down on the EchoUi race HUD in free roam (red and beeping at the end, paused with
-## the tree); when it runs out the delivery is cancelled without pay ("TIME'S UP").
+## the tree); when it runs out the delivery is cancelled without pay ("TIME'S UP"). Arriving with at least
+## `tip_min_early` of the limit left may earn a random tip (see `tip_for`), paid separately.
 ## The free-roam Y menu can re-route the GPS to the drop-off or abandon the delivery.
 ## Missions are not saved: offers and the active delivery are lost on restart (the wallet is kept).
 
@@ -48,6 +49,18 @@ const COMPASS: Array[String] = ["north", "north-east", "east", "south-east", "so
 @export var time_step := 5.0              ## ...rounded up to this (s).
 @export var time_warning := 20.0          ## The countdown turns red in the last seconds...
 @export var time_beep := 10.0             ## ...and beeps every second in the last ones.
+@export_range(0.0, 1.0) var tip_min_early := 0.3    ## A tip is possible only with this share of the time limit left...
+@export_range(0.0, 1.0) var tip_full_early := 0.75   ## ...chance and size peak at this share left.
+@export_range(0.0, 1.0) var tip_chance_min := 0.3    ## Chance of a tip at `tip_min_early`...
+@export_range(0.0, 1.0) var tip_chance_max := 0.8    ## ...rising to this at `tip_full_early`.
+@export_range(0.0, 1.0) var tip_percent_min := 0.05  ## Tip as a share of the reward, from this (just early enough)...
+@export_range(0.0, 1.0) var tip_percent_max := 0.2   ## ...to this (very early)...
+@export_range(0.0, 1.0) var tip_percent_jitter := 0.04  ## ...± a random spread (kept within min..max).
+@export_range(0.0, 1.0) var tip_generous_chance := 0.08  ## Sometimes the customer is generous instead...
+@export_range(0.0, 1.0) var tip_generous_min := 0.25 ## ...and tips this share of the reward...
+@export_range(0.0, 1.0) var tip_generous_max := 0.3  ## ...up to this.
+@export var tip_step := 5                 ## Tips are rounded to this...
+@export var tip_min := 5                  ## ...and are at least this.
 @export var beam_height := 160.0          ## Light beam over the active drop-off.
 @export_range(0.0, 1.0) var offroad_chance := 0.4  ## Share of offers / drop-offs placed off the road, in a field.
 @export var offroad_min_distance := 20.0  ## Off-road spots lie this far from the road edge...
@@ -88,6 +101,7 @@ var _roads: Array[RoadPath] = []
 var _road_total := 0.0
 var _target_marker: MissionMarker
 var _banner_time := 0.0
+var last_tip := 0  ## Tip paid on the last completed delivery (0: none); read by the mission test.
 var _markers_shown := true
 var _timer_shown := false         ## The delivery countdown owns the EchoUi race HUD (free roam only).
 var _last_beep := 0
@@ -303,16 +317,41 @@ func abandon() -> void:
 
 func _complete() -> void:
 	var o := active
-	# Hook for a future early-arrival tip: `time_left` of the `o.time_limit` allowed.
 	var time_left := maxf(o.delivery_left, 0.0)
 	_clear_active()
 	_wallet.earn(o.reward, "Delivery")
 	_wallet.set_stat("deliveries", int(_wallet.get_stat("deliveries", 0)) + 1)
-	_echo.ui.show_banner("DELIVERED", "%s  ·  %.1f km" % [Wallet.format(o.reward, true), o.route_length / 1000.0],
-		COLOR)
-	_banner_time = 3.0
-	print("Delivery completed: %s, %.0f m, paid %d, %.0f s left of %.0f" % [o.cargo, o.route_length, o.reward,
-		time_left, o.time_limit])
+	last_tip = tip_for(o.reward, time_left / o.time_limit if o.time_limit > 0.0 else 0.0)
+	var pay := Wallet.format(o.reward, true)
+	if last_tip > 0:
+		_wallet.earn(last_tip, "Delivery tip")
+		_wallet.set_stat("tips", int(_wallet.get_stat("tips", 0)) + last_tip)
+		_wallet.set_stat("tips_count", int(_wallet.get_stat("tips_count", 0)) + 1)
+		pay += "  + %s tip" % Wallet.format(last_tip)
+	_echo.ui.show_banner("DELIVERED", "%s  ·  %.1f km" % [pay, o.route_length / 1000.0], COLOR)
+	_banner_time = 3.0 if last_tip == 0 else 4.0
+	print("Delivery completed: %s, %.0f m, paid %d, tip %d, %.0f s left of %.0f" % [o.cargo, o.route_length,
+		o.reward, last_tip, time_left, o.time_limit])
+
+
+## Random tip for a delivery of `reward` arrived with the share `early` (0..1) of its time limit left; 0 for none.
+## None below `tip_min_early`; above it the chance rises from `tip_chance_min` to `tip_chance_max` and the size
+## from `tip_percent_min` to `tip_percent_max` of the reward (± `tip_percent_jitter`) at `tip_full_early`;
+## `tip_generous_chance` of the tips are `tip_generous_min..max` instead. Rounded to `tip_step`, at least `tip_min`.
+func tip_for(reward: int, early: float) -> int:
+	if early < tip_min_early or reward <= 0:
+		return 0
+	var t := clampf(inverse_lerp(tip_min_early, maxf(tip_full_early, tip_min_early + 0.001), early), 0.0, 1.0)
+	if _rng.randf() >= lerpf(tip_chance_min, tip_chance_max, t):
+		return 0
+	var share: float
+	if _rng.randf() < tip_generous_chance:
+		share = _rng.randf_range(tip_generous_min, tip_generous_max)
+	else:
+		share = clampf(lerpf(tip_percent_min, tip_percent_max, t) + _rng.randf_range(-tip_percent_jitter,
+			tip_percent_jitter), tip_percent_min, tip_percent_max)
+	var step := maxi(tip_step, 1)
+	return maxi(roundi(reward * share / step) * step, tip_min)
 
 
 ## The delivery clock ran out: the mission is cancelled without pay.

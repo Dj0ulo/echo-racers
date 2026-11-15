@@ -3,7 +3,8 @@ extends Node
 ## (scratch wallet, see main.gd): spawns an offer 8 m ahead of the car on its road, checks that stopping in its
 ## ring opens the offer menu (shot `mission_offer.png`), accepts it through the real ui_accept action, checks
 ## the GPS route to the drop-off, spawns a random offer (world map shot `mission_map.png`), teleports the car
-## onto the drop-off and checks the wallet was paid the offer's reward, then accepts a second offer, runs its
+## onto the drop-off and checks the wallet was paid the offer's reward (+ the logged tip, if any;
+## `tip_for` is also sampled for its range), then accepts a second offer, runs its
 ## delivery clock down and checks it is cancelled without pay. Prints "Mission test: PASS" or "FAIL: ...". Real gamepad buttons are
 ## ignored during the test.
 
@@ -90,11 +91,17 @@ func _process(delta: float) -> void:
 			_next(0.6)
 		4:
 			var paid := wallet.balance - _balance
-			if missions.active != null or paid != _offer.reward or gps.has_destination:
-				_fail("delivery not completed (active %s, paid %d of %d, gps %s)" % [missions.active != null, paid,
-					_offer.reward, gps.has_destination])
+			var tip := missions.last_tip
+			if missions.active != null or tip < 0 or paid != _offer.reward + tip or gps.has_destination:
+				_fail("delivery not completed (active %s, paid %d of %d + tip %d, gps %s)" % [missions.active != null,
+					paid, _offer.reward, tip, gps.has_destination])
 				return
-			print("Mission test: delivered, paid %s -> balance %d" % [paid, wallet.balance])
+			print("Mission test: delivered, paid %s (reward %d + tip %d) -> balance %d" % [paid, _offer.reward, tip,
+				wallet.balance])
+			var tip_error := _check_tips(missions, _offer.reward)
+			if tip_error != "":
+				_fail(tip_error)
+				return
 			var road := world.road
 			_late = missions.spawn_offer_at(road, road.nearest_index(car.global_position))
 			if _late == null:
@@ -118,6 +125,32 @@ func _process(delta: float) -> void:
 			print("Mission test: PASS")
 			_phase = 99
 			get_tree().quit()
+
+
+## Samples `tip_for`: never a tip when barely early; when very early mostly a tip, a multiple of `tip_step`
+## within `tip_min`..the generous share of the reward. Returns "" or the failure.
+func _check_tips(missions: MissionManager, reward: int) -> String:
+	for i in 100:
+		if missions.tip_for(reward, missions.tip_min_early - 0.01) != 0:
+			return "tip below tip_min_early"
+	var hi := maxi(ceili(reward * missions.tip_generous_max / missions.tip_step) * missions.tip_step, missions.tip_min)
+	var count := 0
+	var lo_seen := 1 << 30
+	var hi_seen := 0
+	for i in 400:
+		var tip := missions.tip_for(reward, 0.95)
+		if tip == 0:
+			continue
+		if tip < missions.tip_min or tip > hi or tip % missions.tip_step != 0:
+			return "tip %d out of range (%d..%d, step %d) for reward %d" % [tip, missions.tip_min, hi,
+				missions.tip_step, reward]
+		count += 1
+		lo_seen = mini(lo_seen, tip)
+		hi_seen = maxi(hi_seen, tip)
+	if count < 240 or count > 380:
+		return "%d tips in 400 very early deliveries (expected ~%.0f %%)" % [count, missions.tip_chance_max * 100.0]
+	print("Mission test: tips when very early on reward %d: %d of 400, R%d..R%d" % [reward, count, lo_seen, hi_seen])
+	return ""
 
 
 func _fail(why: String) -> void:
