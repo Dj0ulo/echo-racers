@@ -45,9 +45,9 @@ func _process(delta: float) -> void:
 			if _offer == null:
 				_fail("no drop-off found for an offer on %s" % road.name)
 				return
-			print("Mission test: offer '%s', %.0f m by road (straight %.0f m), reward %d" % [_offer.cargo,
+			print("Mission test: offer '%s', %.0f m by road (straight %.0f m), reward %d, drop-off %s" % [_offer.cargo,
 				_offer.route_length, Vector2(_offer.target.x - _offer.pickup.x, _offer.target.z - _offer.pickup.z).length(),
-				_offer.reward])
+				_offer.reward, "off-road" if _offer.target_offroad else "roadside"])
 			car.reset_to(road.transform_at(i - 4, 0.6))
 			(_main.get(&"chase_camera") as ChaseCamera).snap()
 			_balance = wallet.balance
@@ -69,8 +69,9 @@ func _process(delta: float) -> void:
 				return
 			print("Mission test: accepted, GPS route %.0f m, %d offer(s) left" % [gps.route_length, missions.offers.size()])
 			var extra := missions.spawn_offer()
-			print("Mission test: random offer %s" % ("none found" if extra == null else "%.0f m from the car, %.0f m by road, reward %d" % [
-				car.global_position.distance_to(extra.pickup), extra.route_length, extra.reward]))
+			print("Mission test: random offer %s" % ("none found" if extra == null else "%.0f m from the car, %.0f m by road, reward %d, off-road pickup %s / drop-off %s" % [
+				car.global_position.distance_to(extra.pickup), extra.route_length, extra.reward, extra.pickup_offroad,
+				extra.target_offroad]))
 			var map: WorldMap = _main.get(&"world_map")
 			map.open()
 			_next(0.5)

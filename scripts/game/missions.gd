@@ -1,15 +1,17 @@
 class_name MissionManager
 extends Node
 ## Delivery missions. Every `spawn_interval_min`..`spawn_interval_max` seconds (the first one after
-## `first_offer_delay`) an offer appears at a random roadside spot of the road network (not the highway or its
-## ramps), at least `min_offer_distance` from the car, up to `max_offers` at once; each expires after
-## `offer_lifetime` seconds. Offers are lime MissionMarkers in the world, parcels on the minimap and world map.
-## Stopping (below `pickup_speed_kmh`) inside an offer's ring in free roam opens a menu (EchoUi look, through the
-## EchoManager): cargo, where to, distance by road, reward, Accept / Decline. Declining keeps the offer until it
-## expires but it only asks again once the car has left and come back. An accepted offer becomes the one active
-## delivery: its drop-off, a random roadside spot `min_route`..`max_route` metres away by road, gets a lime light
-## beam and pin and the GPS route; driving there (free roam) pays route km × `pay_per_km` × a random factor,
-## through the Wallet. The free-roam Y menu can re-route the GPS to the drop-off or abandon the delivery.
+## `first_offer_delay`) an offer appears at a random spot by the road network (not the highway or its ramps):
+## on the roadside or, `offroad_chance` of the time, out in a field `offroad_min_distance`..`offroad_max_distance`
+## off the road (gentle, clear ground reachable straight from the road), at least `min_offer_distance` from the
+## car, up to `max_offers` at once; each expires after `offer_lifetime` seconds. Offers are lime MissionMarkers
+## in the world, parcels on the minimap and world map. Stopping (below `pickup_speed_kmh`) inside an offer's ring
+## in free roam opens a menu (EchoUi look, through the EchoManager): cargo, where to, distance by road, reward,
+## Accept / Decline. Declining keeps the offer until it expires but it only asks again once the car has left and
+## come back. An accepted offer becomes the one active delivery: its drop-off, a random spot (roadside or field,
+## likewise) `min_route`..`max_route` metres away by road, gets a lime light beam and pin and the GPS route;
+## driving there (free roam) pays route km (field legs included) × `pay_per_km` × a random factor, through the
+## Wallet. The free-roam Y menu can re-route the GPS to the drop-off or abandon the delivery.
 ## Missions are not saved: offers and the active delivery are lost on restart (the wallet is kept).
 
 const COLOR := Color(0.62, 1.0, 0.22)  ## Lime: offers, drop-off beam and pins (distinct from echo cyan, GPS gold).
@@ -39,13 +41,20 @@ const COMPASS: Array[String] = ["north", "north-east", "east", "south-east", "so
 @export var pay_random_max := 1.2
 @export var pay_step := 5                 ## ...rounded to this.
 @export var beam_height := 160.0          ## Light beam over the active drop-off.
+@export_range(0.0, 1.0) var offroad_chance := 0.4  ## Share of offers / drop-offs placed off the road, in a field.
+@export var offroad_min_distance := 20.0  ## Off-road spots lie this far from the road edge...
+@export var offroad_max_distance := 60.0  ## ...at most this (and at least `offroad_min_distance` from any road).
+@export var offroad_max_slope := 14.0     ## Steepest ground (degrees) at the spot and along the way from the road.
+@export var offroad_clearance := 6.0      ## No tree, fence or building within this radius of the spot (m).
 
 
 class Offer:
 	var pickup := Vector3.ZERO
 	var pickup_dir := Vector3.FORWARD
 	var target := Vector3.ZERO
-	var route_length := 0.0
+	var route_length := 0.0     ## Road route plus the straight off-road legs at both ends (m).
+	var pickup_offroad := false
+	var target_offroad := false
 	var reward := 0
 	var cargo := ""
 	var time_left := 0.0
@@ -136,7 +145,7 @@ func _process(delta: float) -> void:
 
 # --- Offers --------------------------------------------------------------------------------------
 
-## Spawns an offer at a random roadside spot (far enough from the car and the other markers). Returns null when
+## Spawns an offer at a random spot by the roads (far enough from the car and the other markers). Returns null when
 ## no spot / drop-off was found this time.
 func spawn_offer() -> Offer:
 	for attempt in 12:
@@ -145,16 +154,18 @@ func spawn_offer() -> Offer:
 		var p := road.points[i]
 		if road.is_bridge(i) or _flat(p, _car.global_position) < min_offer_distance or not _clear_of_markers(p):
 			continue
-		var o := spawn_offer_at(road, i)
+		var o := spawn_offer_at(road, i, true)
 		if o:
 			return o
 	return null
 
 
-## Spawns an offer on the roadside of `road` at sample `i` (the mission test uses it directly).
-func spawn_offer_at(road: RoadPath, i: int) -> Offer:
+## Spawns an offer near `road` at sample `i`: on the roadside, or with `allow_offroad` (random offers) an
+## `offroad_chance` of being out in a field. The mission test calls it directly (roadside pickup).
+func spawn_offer_at(road: RoadPath, i: int, allow_offroad := false) -> Offer:
 	var o := Offer.new()
-	o.pickup = _roadside(road, i)
+	o.pickup = _spot_near(road, i, allow_offroad)
+	o.pickup_offroad = _flat(o.pickup, road.points[i]) > road.half_width + 5.0
 	o.pickup_dir = road.tangents[i]
 	if not _pick_destination(o):
 		return null
@@ -173,7 +184,7 @@ func spawn_offer_at(road: RoadPath, i: int) -> Offer:
 	return o
 
 
-## Picks a roadside drop-off between `min_route` and `max_route` metres away by road. False if none found.
+## Picks a drop-off (roadside or, `offroad_chance` of the time, in a field) between `min_route` and `max_route` metres away by road. False if none found.
 func _pick_destination(o: Offer) -> bool:
 	var graph := _gps.road_graph()
 	for attempt in 16:
@@ -182,19 +193,21 @@ func _pick_destination(o: Offer) -> bool:
 		var crow := _flat(road.points[i], o.pickup)
 		if road.is_bridge(i) or crow < min_route * 0.5 or crow > max_route or not _clear_of_markers(road.points[i]):
 			continue
-		var target := _roadside(road, i)
+		var target := _spot_near(road, i, true)
 		# Either way along the road at the pickup: the player may turn round.
 		var length := minf(_route_length(graph, o.pickup, o.pickup_dir, target),
 			_route_length(graph, o.pickup, -o.pickup_dir, target))
 		if length < min_route or length > max_route or length > crow * 4.0:
 			continue
 		o.target = target
+		o.target_offroad = _flat(target, road.points[i]) > road.half_width + 5.0
 		o.route_length = length
 		return true
 	return false
 
 
-## Metres by road from `from` (leaving along `heading`) to `to`, INF when there is no route.
+## Metres by road from `from` (leaving along `heading`) to `to`, INF when there is no route. Includes the
+## straight legs between the end points and the road network (so off-road spots pay their field crossing).
 func _route_length(graph: RoadGraph, from: Vector3, heading: Vector3, to: Vector3) -> float:
 	var path := graph.find_route(from, heading, to)
 	if path.size() < 2:
@@ -218,7 +231,7 @@ func _open_offer_menu(o: Offer) -> void:
 		note = "\nYou already have a delivery to make."
 	_echo.open_menu("DELIVERY", "%s for a customer %.1f km %s of here: %.1f km by road. Pays %s. The offer stays open %d:%02d.%s" % [
 		o.cargo, _flat(o.pickup, o.target) / 1000.0, compass, o.route_length / 1000.0, Wallet.format(o.reward),
-		mins, int(o.time_left) % 60, note], [
+		mins, int(o.time_left) % 60, note + _offroad_note(o)], [
 		accept,
 		{"text": "Decline", "action": _decline.bind(o)},
 	], _decline.bind(o))
@@ -316,6 +329,87 @@ func _roadside(road: RoadPath, i: int) -> Vector3:
 	if not hit.is_empty():
 		p.y = (hit.position as Vector3).y
 	return p
+
+
+## A drop-on-the-ground spot by `road` at sample `i`: the roadside, or (when `allow_offroad`, with
+## `offroad_chance`) a field spot from `_offroad_spot`, falling back to the roadside.
+func _spot_near(road: RoadPath, i: int, allow_offroad: bool) -> Vector3:
+	if allow_offroad and _rng.randf() < offroad_chance:
+		var p := _offroad_spot(road, i)
+		if p.is_finite():
+			return p
+	return _roadside(road, i)
+
+
+## A random spot `offroad_min_distance`..`offroad_max_distance` off either edge of `road` at sample `i`, at terrain
+## height: gentle ground (`offroad_max_slope`) there and along the straight way from the road, away from every
+## road, with no collider (tree trunk, fence, guard rail, farm, turbine) on the way or within `offroad_clearance`.
+## Vector3.INF when no such spot was found.
+func _offroad_spot(road: RoadPath, i: int) -> Vector3:
+	var terrain := _world.terrain
+	var min_up := cos(deg_to_rad(offroad_max_slope))
+	var space := _car.get_world_3d().direct_space_state
+	for attempt in 10:
+		var side := 1.0 if _rng.randf() < 0.5 else -1.0
+		var right := road.right_at(i) * side
+		var start := road.points[i] + right * (road.half_width + 1.0)
+		var d := _rng.randf_range(offroad_min_distance, offroad_max_distance)
+		var p := start + right * d + road.tangents[i] * _rng.randf_range(-0.4, 0.4) * d
+		if not terrain.is_inside(p.x, p.z) or terrain.get_road_distance(p.x, p.z) < offroad_min_distance:
+			continue
+		p.y = terrain.get_height(p.x, p.z)
+		if terrain.get_normal(p.x, p.z, 3.0).y < min_up or not _area_clear(space, p, offroad_clearance):
+			continue
+		if _way_clear(space, start, p, min_up):
+			return p
+	return Vector3.INF
+
+
+## True when nothing but the terrain lies within `radius` of ground point `p` (sphere resting just above it).
+func _area_clear(space: PhysicsDirectSpaceState3D, p: Vector3, radius: float) -> bool:
+	var sphere := SphereShape3D.new()
+	sphere.radius = radius
+	var q := PhysicsShapeQueryParameters3D.new()
+	q.shape = sphere
+	q.transform = Transform3D(Basis(), p + Vector3.UP * (radius + 0.6))
+	q.exclude = [_car.get_rid()]
+	for hit in space.intersect_shape(q, 8):
+		var body := hit.collider as Node
+		if body == null or body.name != &"TerrainBody":
+			return false
+	return true
+
+
+## True when the straight way from the road edge `from` to `to` is drivable: gentle slopes, no other road
+## crossed, no collider in the way about a metre above the ground.
+func _way_clear(space: PhysicsDirectSpaceState3D, from: Vector3, to: Vector3, min_up: float) -> bool:
+	var terrain := _world.terrain
+	var steps := maxi(ceili(_flat(from, to) / 5.0), 1)
+	var prev := Vector3(from.x, terrain.get_height(from.x, from.z) + 1.0, from.z)
+	for k in range(1, steps + 1):
+		var q := from.lerp(to, float(k) / steps)
+		q.y = terrain.get_height(q.x, q.z) + 1.0
+		# The embankment or cut right by the road may be steeper (cars drive down 2:1 slopes fine).
+		var up := cos(deg_to_rad(minf(offroad_max_slope * 2.0, 30.0))) if k * 5.0 < 15.0 else min_up * 0.97
+		if terrain.get_normal(q.x, q.z, 2.0).y < up:
+			return false
+		if k * 5.0 > 6.0 and terrain.get_road_distance(q.x, q.z) < 3.0:
+			return false
+		var ray := PhysicsRayQueryParameters3D.create(prev, q)
+		ray.exclude = [_car.get_rid()]
+		var hit := space.intersect_ray(ray)
+		if not hit.is_empty() and (hit.collider == null or (hit.collider as Node).name != &"TerrainBody"):
+			return false
+		prev = q
+	return true
+
+
+func _offroad_note(o: Offer) -> String:
+	if o.pickup_offroad and o.target_offroad:
+		return "\nOff-road at both ends: cross the fields."
+	if o.target_offroad:
+		return "\nThe drop-off is off the road, across a field."
+	return ""
 
 
 func _clear_of_markers(p: Vector3) -> bool:
