@@ -1,10 +1,12 @@
 extends Node3D
-## Game entry point: spawns the car on the road (or where the save left it), handles the pause menu
-## (resume / save / quit), the save game and vehicle resets.
+## Game entry point: spawns the car on the road (or where the save left it), creates the game systems (wallet,
+## echo races, GPS, delivery missions, world map), handles the pause menu (resume / save / quit), the save game
+## and vehicle resets.
 
 const AUTODRIVE_SCRIPT := "res://scripts/debug/autodrive.gd"
 const ECHO_TEST_SCRIPT := "res://scripts/debug/echo_test.gd"
 const MAP_TEST_SCRIPT := "res://scripts/debug/map_test.gd"
+const MISSION_TEST_SCRIPT := "res://scripts/debug/mission_test.gd"
 
 @onready var world: WorldGenerator = $World
 @onready var car: CarController = $Car
@@ -15,6 +17,7 @@ var wallet: Wallet
 var echo: EchoManager
 var gps: Gps
 var world_map: WorldMap
+var missions: MissionManager
 var day_night: DayNight
 var pause_menu: PauseMenu
 
@@ -53,6 +56,12 @@ func _ready() -> void:
 	day_night.name = "DayNight"
 	add_child(day_night)
 	day_night.setup(env, $Sun as DirectionalLight3D, world, car, chase_camera)
+	missions = MissionManager.new()
+	missions.name = "Missions"
+	# Debug runs get no random offers (they would stop the autodrive); the mission test spawns its own.
+	missions.auto_spawn = not "--autodrive" in OS.get_cmdline_user_args()
+	add_child(missions)
+	missions.setup(world, car, echo, gps, wallet, hud.get_minimap())
 	world_map = WorldMap.new()
 	world_map.name = "WorldMap"
 	add_child(world_map)
@@ -79,6 +88,10 @@ func _ready() -> void:
 			var map_test: Node = load(MAP_TEST_SCRIPT).new()
 			map_test.name = "MapTest"
 			add_child(map_test)
+		if "--missiontest" in OS.get_cmdline_user_args():
+			var mission_test: Node = load(MISSION_TEST_SCRIPT).new()
+			mission_test.name = "MissionTest"
+			add_child(mission_test)
 
 
 func _unhandled_input(event: InputEvent) -> void:

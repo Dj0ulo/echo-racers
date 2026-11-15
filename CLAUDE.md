@@ -13,6 +13,8 @@ tabs, typed GDScript, `##` doc comment at the top of each script.
 - `scripts/game/minimap.gd` (Minimap) heading-up circular minimap, terrain+roads rendered once, shader rotates.
 - `scripts/game/world_map.gd` (WorldMap) Select/M full-screen top-down map: pan, zoom, set the GPS destination.
 - `scripts/game/gps.gd` (Gps) destination beacon, route on the minimap, gold filament ahead of the car; echo races: the echo's path.
+- `scripts/game/missions.gd` (MissionManager) delivery offers on the roads, accept menu, drop-off, pay by route km.
+- `scripts/game/mission_marker.gd` (MissionMarker) lime neon beacon of an offer / the drop-off.
 - `scripts/game/road_graph.gd` (RoadGraph) AStar3D graph of the road network (one-way ramps, carriageways).
 - `scripts/vehicle/car_controller.gd` (CarController) RigidBody3D, raycast suspension, arcade tyre physics, exported tunables.
 - `scripts/vehicle/vehicle_input.gd` (VehicleInput) input actions to normalized commands (AI can drive too).
@@ -44,8 +46,9 @@ tabs, typed GDScript, `##` doc comment at the top of each script.
 - `scripts/echo/checkpoint_gate.gd`, `ghost_car.gd`, `echo_point.gd` (beacon), `neon.gd` (glow shaders/materials).
 - `scripts/debug/echo_test.gd` `--autodrive --echotest`: whole echo flow end to end (scratch save folder).
 - `scripts/debug/map_test.gd` `--autodrive --maptest`: world map + GPS route/filament, routes to every road.
+- `scripts/debug/mission_test.gd` `--autodrive --missiontest`: offer, accept menu, GPS, delivery payout.
 - `scripts/debug/autodrive.gd` autopilot lap, drift scenarios, `--crashtest`, screenshots (flags in its header).
-- `tools/gd` agent wrapper for Godot: fast/full checks, autodrive, shots, echo/map/crash tests; always filters output.
+- `tools/gd` agent wrapper for Godot: fast/full checks, autodrive, shots, echo/map/mission/crash tests; always filters output.
 - `shaders/` road.gdshader (markings), grass.gdshader (sway), speed_overlay.gdshader, speed_streak.gdshader.
 
 ## Key scenes
@@ -56,7 +59,7 @@ tabs, typed GDScript, `##` doc comment at the top of each script.
 ## Running
 Use `tools/gd` (usage in its header; the `playtest` skill, `.claude/skills/playtest/SKILL.md`, has the recipes):
 `tools/gd check --fast` (0.4 s/file) then `tools/gd check` (full load, ~8 s), `tools/gd drive|shots [--duration=<s>] ...`,
-`echotest`, `maptest`, `crashtest`, `import`. Binary override `G=`, extra engine flags `GD_FLAGS="--disable-vsync"`.
+`echotest`, `maptest`, `missiontest`, `crashtest`, `import`. Binary override `G=`, extra engine flags `GD_FLAGS="--disable-vsync"`.
 - Prefer short runs: `--duration=0` with `--view`s for a still, `--duration=13` for one shot (full lap ~50 s).
 - Strict warning check of one file: write `override.cfg` containing
   `[debug]` / `gdscript/warnings/treat_warnings_as_errors=true`, run

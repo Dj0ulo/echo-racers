@@ -93,11 +93,7 @@ func setup(world: WorldGenerator, car: CarController, minimap: Minimap, echo: Ec
 
 
 func set_destination(p: Vector3) -> void:
-	if _graph == null:
-		var t := Time.get_ticks_msec()
-		_graph = RoadGraph.new()
-		_graph.build(_world.roads)
-		print("GPS road graph built in %d ms" % (Time.get_ticks_msec() - t))
+	road_graph()
 	has_destination = true
 	destination = p
 	_beacon.global_position = p
@@ -105,6 +101,16 @@ func set_destination(p: Vector3) -> void:
 	_minimap.destination = p
 	_minimap.destination_active = true
 	reroute()
+
+
+## The road network's route graph, built on first use (also used by MissionManager to price deliveries).
+func road_graph() -> RoadGraph:
+	if _graph == null:
+		var t := Time.get_ticks_msec()
+		_graph = RoadGraph.new()
+		_graph.build(_world.roads)
+		print("GPS road graph built in %d ms" % (Time.get_ticks_msec() - t))
+	return _graph
 
 
 func clear_destination() -> void:

@@ -4,7 +4,8 @@ extends CanvasLayer
 ## looks straight down on the world (north up) from its own camera, like the echo editor. Pan with the left
 ## stick / WASD / arrows / mouse drag, zoom with the triggers / Q E / wheel; A / Enter puts the GPS
 ## destination under the crosshair (or click a spot), X / F / Delete clears it, B / Select / Esc closes.
-## The GPS route, the car, the destination and the echo points are drawn on top.
+## The GPS route, the car, the destination, the echo points, delivery offers (lime parcels) and the active
+## delivery's drop-off (lime pin) are drawn on top.
 
 const TEXT := Color(0.92, 0.95, 1.0)
 const MUTED := Color(0.62, 0.7, 0.8)
@@ -259,18 +260,16 @@ func _draw_overlay() -> void:
 		_overlay.draw_colored_polygon(d, Minimap.ECHO_COLOR)
 		d.append(d[0])
 		_overlay.draw_polyline(d, Color(1, 1, 1, 0.9), 1.5, true)
-	# Destination pin.
-	if gps.has_destination:
-		var s := _to_screen(gps.destination)
-		var tip := s
-		var head := s + Vector2(0, -26)
-		_overlay.draw_colored_polygon(PackedVector2Array([tip, head + Vector2(-9, 4), head + Vector2(9, 4)]),
-			Color(0.1, 0.07, 0.0, 0.9))
-		_overlay.draw_circle(head, 12.0, Color(0.1, 0.07, 0.0, 0.9))
-		_overlay.draw_colored_polygon(PackedVector2Array([tip + Vector2(0, -3), head + Vector2(-7, 5),
-			head + Vector2(7, 5)]), Gps.COLOR)
-		_overlay.draw_circle(head, 10.0, Gps.COLOR)
-		_overlay.draw_circle(head, 4.0, Color.WHITE)
+	# Delivery offers and the active delivery's drop-off.
+	for p in minimap.mission_offers:
+		Minimap.draw_parcel_icon(_overlay, _to_screen(p), 9.0)
+	if minimap.mission_target_active:
+		_draw_map_pin(_to_screen(minimap.mission_target), MissionManager.COLOR)
+	# Destination pin (unless it is the drop-off, already pinned in lime).
+	var delivery := minimap.mission_target_active and gps.has_destination \
+			and Vector2(gps.destination.x - minimap.mission_target.x, gps.destination.z - minimap.mission_target.z).length() < 1.0
+	if gps.has_destination and not delivery:
+		_draw_map_pin(_to_screen(gps.destination), Gps.COLOR)
 	# Car arrow.
 	var car_s := _to_screen(_car.global_position)
 	var f := -_car.global_basis.z
@@ -291,14 +290,27 @@ func _draw_overlay() -> void:
 	_text("MAP", Vector2(32, 52), 30, TEXT)
 	var info := "No destination"
 	if gps.has_destination:
-		info = "Destination  ·  %.1f km by road" % (gps.route_length / 1000.0)
-	_text(info, Vector2(32, 84), 18, Gps.COLOR if gps.has_destination else MUTED)
+		info = "%s  ·  %.1f km by road" % ["Delivery drop-off" if delivery else "Destination", gps.route_length / 1000.0]
+	_text(info, Vector2(32, 84), 18, (MissionManager.COLOR if delivery else Gps.COLOR) if gps.has_destination else MUTED)
 	var np := Vector2(size.x - 48, 48)
 	_overlay.draw_colored_polygon(PackedVector2Array([np + Vector2(0, -26), np + Vector2(9, -10), np + Vector2(-9, -10)]),
 		Color(1.0, 0.45, 0.4))
 	_text("N", np + Vector2(-8, 12), 22, Color(1.0, 0.45, 0.4))
 	_text("Left stick / WASD / drag  pan      LT RT / Q E / wheel  zoom      A / Enter / click  set destination" +
 		"      X / F / Del  clear      B / Select / Esc  close", Vector2(32, size.y - 28), 16, MUTED)
+
+
+## Map pin whose tip is at `s`.
+func _draw_map_pin(s: Vector2, col: Color) -> void:
+	var tip := s
+	var head := s + Vector2(0, -26)
+	_overlay.draw_colored_polygon(PackedVector2Array([tip, head + Vector2(-9, 4), head + Vector2(9, 4)]),
+		Color(0.1, 0.07, 0.0, 0.9))
+	_overlay.draw_circle(head, 12.0, Color(0.1, 0.07, 0.0, 0.9))
+	_overlay.draw_colored_polygon(PackedVector2Array([tip + Vector2(0, -3), head + Vector2(-7, 5),
+		head + Vector2(7, 5)]), col)
+	_overlay.draw_circle(head, 10.0, col)
+	_overlay.draw_circle(head, 4.0, Color.WHITE)
 
 
 func _text(t: String, pos: Vector2, fs: int, col: Color) -> void:

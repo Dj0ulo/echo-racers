@@ -3,7 +3,8 @@ extends Control
 ## Circular heading-up minimap: the player arrow sits fixed at the centre pointing up and the map rotates
 ## around it. The terrain (height-tinted, hill-shaded) and every road of `WorldGenerator.roads` are rendered
 ## ONCE into a texture covering the whole network; each frame a shader only samples that texture with the
-## player's position and heading. Traffic cars, the player arrow and the north marker are drawn on top.
+## player's position and heading. Traffic cars, the GPS route and pin, echo points, delivery offers and drop-off,
+## the player arrow and the north marker are drawn on top.
 ## Everything is derived from the world data at runtime (any number of roads, any map size).
 
 const DIAMETER := 230.0
@@ -56,6 +57,9 @@ var destination := Vector3.ZERO          ## GPS destination (gold pin, pinned to
 var destination_active := false          ## ...shown while this is set.
 var route := PackedVector3Array()        ## GPS route drawn as a gold line (empty = none).
 var route_color := Gps.COLOR             ## Gold for the GPS, blue for an echo race's direction line.
+var mission_offers := PackedVector3Array()  ## Open delivery offers (lime parcel icons, pinned to the rim).
+var mission_target := Vector3.ZERO          ## Drop-off of the active delivery (lime pin)...
+var mission_target_active := false          ## ...shown while this is set.
 var show_markers := true                 ## Echo points and the GPS pin (hidden during echo races).
 var ghost: Node3D                        ## Echo ghost raced against, drawn as a neon arrow (null = none).
 
@@ -280,8 +284,14 @@ func _draw_overlay() -> void:
 	# GPS route, then its destination.
 	if route.size() >= 2:
 		_draw_route(c, r, pos, axes)
-	if destination_active and show_markers:
+	var on_drop_off := mission_target_active and Vector2(destination.x - mission_target.x,
+			destination.z - mission_target.z).length() < 1.0
+	if destination_active and show_markers and not on_drop_off:
 		_draw_pin(c, r, _to_screen(Vector2(destination.x, destination.z), pos, axes, r))
+	if mission_target_active and show_markers:
+		_draw_pin(c, r, _to_screen(Vector2(mission_target.x, mission_target.z), pos, axes, r), MissionManager.COLOR)
+	for p in (mission_offers if show_markers else PackedVector3Array()):
+		_draw_parcel(c, r, _to_screen(Vector2(p.x, p.z), pos, axes, r), 6.5)
 
 	# Echo points, and the next checkpoint during an echo race (both pinned to the rim when off the map).
 	var pulse := 0.75 + 0.25 * sin(Time.get_ticks_msec() * 0.006)
@@ -370,15 +380,35 @@ func _draw_route(c: Vector2, r: float, pos: Vector2, axes: Array[Vector2]) -> vo
 		_overlay.draw_polyline(run, route_color, 3.2, true)
 
 
-## Gold destination pin; shrunk and pinned to the rim when off the map.
-func _draw_pin(c: Vector2, r: float, s: Vector2) -> void:
+## Delivery offer: a lime parcel (square with its strap); shrunk and pinned to the rim when off the map.
+func _draw_parcel(c: Vector2, r: float, s: Vector2, size: float) -> void:
+	var edge := r - size - 3.0
+	if s.length() > edge:
+		s = s.normalized() * edge
+		size *= 0.75
+	var p := c + s
+	draw_parcel_icon(_overlay, p, size)
+
+
+## Shared with the WorldMap: parcel icon of half-size `size` centred on `p`.
+static func draw_parcel_icon(canvas: CanvasItem, p: Vector2, size: float) -> void:
+	var col := MissionManager.COLOR
+	canvas.draw_circle(p, size * 1.6, Color(col, 0.22))
+	var rect := Rect2(p - Vector2(size, size), Vector2(size, size) * 2.0)
+	canvas.draw_rect(rect.grow(1.5), Color(0.05, 0.08, 0.0, 0.9))
+	canvas.draw_rect(rect, col)
+	canvas.draw_line(p + Vector2(0, -size), p + Vector2(0, size), Color(0.1, 0.18, 0.0, 0.9), maxf(size * 0.28, 1.5))
+
+
+## Destination pin (gold GPS by default); shrunk and pinned to the rim when off the map.
+func _draw_pin(c: Vector2, r: float, s: Vector2, col := Gps.COLOR) -> void:
 	var size := 7.0
 	var edge := r - size - 4.0
 	if s.length() > edge:
 		s = s.normalized() * edge
 		size *= 0.8
 	var p := c + s
-	_overlay.draw_circle(p, size * 1.7, Color(Gps.COLOR, 0.25))
+	_overlay.draw_circle(p, size * 1.7, Color(col, 0.25))
 	_overlay.draw_circle(p, size + 1.5, Color(0.1, 0.07, 0.0, 0.9))
-	_overlay.draw_circle(p, size, Gps.COLOR)
+	_overlay.draw_circle(p, size, col)
 	_overlay.draw_circle(p, size * 0.38, Color(1, 1, 1, 0.95))

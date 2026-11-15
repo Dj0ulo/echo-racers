@@ -110,12 +110,39 @@ and floats the signed amount under it. A new game starts with R⃒500 (`Wallet.s
   (saved in its `.echo` file) and "best" is min(best echo, paid record), so re-racing without saving cannot collect
   the same margin twice. The finish banner and result menu show the par, whether it was beaten and the reward (or
   why nothing was paid); the course and race menus show the par and the time to beat.
+- **Delivery missions pay** by distance, see below.
 
 Code: `scripts/game/wallet.gd` (`Wallet`: `balance`, `earn(amount, reason)`, `spend(amount, reason) -> bool`,
 `can_afford`, `get_stat` / `set_stat`, signal `changed(balance, delta, reason)`, `Wallet.format(amount, signed)`).
 The sign is `Wallet.SIGN`, a private-use character U+E000 followed by "R": a procedural bitmap font, added at
 startup as a fallback of the default theme font, draws U+E000 as a zero-width bar over the next letter, so it works
 in any Label/Button at any size without assets.
+
+## Delivery missions
+
+From time to time a delivery offer appears somewhere on the roads (not on the highway or its ramps): a lime neon
+post with a spinning parcel, a pulsing ring and a sign with its reward and distance; it is also a lime parcel on the
+minimap (pinned to the rim when far) and on the world map. The first one comes about 15 s after start, then one every
+45-120 s, up to 3 open at once, at least 300 m from the car; an untaken offer disappears after 4 minutes.
+Stop (below 35 km/h) inside an offer's ring in free roam and its menu opens: the cargo, where the customer is
+(crow-flies distance and compass direction, distance by road), the reward and how long the offer stays open.
+**Accept** makes it the active delivery (one at a time; the Accept entry is greyed out while one is running);
+**Decline** keeps the offer on the map but it only asks again once you have left its ring and come back. Offers
+never open during an echo race, recording or the editor.
+
+The drop-off is a random roadside spot 600 m - 3 km away by road. It gets a tall lime light beam and a lime pin on
+the minimap and world map, and the GPS routes to it. Drive within 25 m of it (free roam) to deliver: the reward is
+paid with a "DELIVERED" banner. Reward = route km × R⃒160 × a random factor in [0.85, 1.2], rounded to R⃒5 (about
+R⃒250 for a 1.6 km delivery). While a delivery is active, the free-roam Y menu can point the GPS back to the
+drop-off (after you set another destination on the map) or abandon the delivery (no pay, no penalty).
+Missions are not saved: open offers and the active delivery are gone after a restart (the money earned is kept).
+The wallet counts completed deliveries (`deliveries` stat).
+
+Code: `scripts/game/missions.gd` (`MissionManager`, all tunables exported: `first_offer_delay`,
+`spawn_interval_min/max`, `max_offers`, `offer_lifetime`, `min_offer_distance`, `pickup_radius`,
+`pickup_speed_kmh`, `delivery_radius`, `min_route`, `max_route`, `pay_per_km`, `pay_random_min/max`, `pay_step`),
+`scripts/game/mission_marker.gd` (`MissionMarker`, the lime beacon). Debug runs (`--autodrive`) get no random
+offers.
 
 ## Day and night
 
@@ -208,5 +235,9 @@ It also checks the course price is charged on save, prints the par and the race 
 paid twice, and deletes the scratch wallet (`user://wallet_test.cfg`, reset at the start of every `--autodrive` run).
 `--autodrive --maptest [--shots=/abs/dir]` opens the world map through its input action, sets a destination 450 m
 ahead (shots `map.png`, then `filament.png` after closing the map), then routes to the middle of every road and
-prints route vs straight-line distances. Real gamepad buttons are ignored during it (Godot reads joypads even
+prints route vs straight-line distances.
+`--autodrive --missiontest [--shots=/abs/dir]` (`tools/gd missiontest`) spawns a delivery offer just ahead of the
+car, checks its menu opens (shot `mission_offer.png`), accepts it with a simulated ui_accept, checks the GPS route,
+spawns a random offer (world map shot `mission_map.png`), teleports to the drop-off and checks the scratch wallet
+was paid the reward; prints `Mission test: PASS` or `FAIL: <why>`. Real gamepad buttons are ignored during it (Godot reads joypads even
 unfocused; add `--audio-driver Dummy` before `--` to keep test runs silent while someone plays).

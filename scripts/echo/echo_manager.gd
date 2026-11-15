@@ -26,6 +26,7 @@ enum State { FREE, COUNTDOWN, RECORDING, RACING, FINISHED, EDITING }
 const COURSES_STAT := "echo_courses_created"
 
 var state := State.FREE
+var free_menu_items := Callable()  ## Returns extra Array[Dictionary] items for the free-roam Y menu.
 var race_line := true             ## Gold direction line along the raced echo's path (toggled in the race menu).
 var tracks: Array[EchoTrack] = []
 var ui: EchoUi
@@ -193,7 +194,7 @@ func handle_reset() -> bool:
 func start_recording() -> void:
 	if not _check_course_affordable():
 		return
-	_close_menu()
+	close_menu()
 	_clear_race()
 	_track = null
 	_ghost_run = null
@@ -207,7 +208,7 @@ func start_recording() -> void:
 
 
 func race_echo(track: EchoTrack, echo: EchoRun) -> void:
-	_close_menu()
+	close_menu()
 	_clear_race()
 	_track = track
 	_ghost_run = echo
@@ -238,12 +239,12 @@ func restart() -> void:
 	else:
 		if not _check_course_affordable():
 			return
-		_close_menu()
+		close_menu()
 		_begin_countdown()
 
 
 func exit_race() -> void:
-	_close_menu()
+	close_menu()
 	_clear_race()
 	_track = null
 	_ghost_run = null
@@ -544,12 +545,12 @@ func open_context_menu() -> void:
 				if not _wallet.can_afford(cost):
 					money = "Not enough money: a new course costs %s, you have %s." % [Wallet.format(cost),
 						Wallet.format(_wallet.balance)]
-				_open_menu("ECHO RACE", "Record a run from right here. Press Y again whenever you want to end it, " +
+				var items: Array[Dictionary] = [_record_item("Start a race here")]
+				items.append_array(_extra_free_items())
+				items.append({"text": "Close", "action": close_menu})
+				open_menu("ECHO RACE", "Record a run from right here. Press Y again whenever you want to end it, " +
 					"then place its checkpoints. %s %d echo point%s on the map." % [money, tracks.size(),
-					"" if tracks.size() == 1 else "s"], [
-					_record_item("Start a race here"),
-					{"text": "Close", "action": _close_menu},
-				])
+					"" if tracks.size() == 1 else "s"], items)
 		State.COUNTDOWN, State.RECORDING, State.RACING, State.FINISHED:
 			_open_race_menu()
 
@@ -557,11 +558,11 @@ func open_context_menu() -> void:
 func _open_race_menu() -> void:
 	if _track == null:
 		var long_enough := state == State.RECORDING and _run != null and _run.duration() >= min_run_seconds
-		_open_menu("RECORDING", "%s recorded." % EchoRun.format_time(_time), [
+		open_menu("RECORDING", "%s recorded." % EchoRun.format_time(_time), [
 			{"text": "End the race & place checkpoints", "action": end_recording, "enabled": long_enough},
 			{"text": "Restart from the start", "action": restart},
 			{"text": "Exit race mode", "action": exit_race},
-			{"text": "Resume", "action": _close_menu},
+			{"text": "Resume", "action": close_menu},
 		])
 		return
 	var items: Array[Dictionary] = []
@@ -571,9 +572,9 @@ func _open_race_menu() -> void:
 		{"text": "Restart from the start", "action": restart},
 		{"text": _race_line_text(), "action": _toggle_race_line.bind(items.size() + 1)},
 		{"text": "Exit race mode", "action": exit_race},
-		{"text": "Resume", "action": _close_menu},
+		{"text": "Resume", "action": close_menu},
 	])
-	_open_menu(_track.name.to_upper(), "Racing the %s echo. Par %s; beat it and %s to earn money." % [
+	open_menu(_track.name.to_upper(), "Racing the %s echo. Par %s; beat it and %s to earn money." % [
 		EchoRun.format_time(_ghost_run.time), EchoRun.format_time(par_time(_track)),
 		EchoRun.format_time(_track.reward_reference())], items)
 
@@ -583,14 +584,14 @@ func _open_race_menu() -> void:
 func _open_result_menu() -> void:
 	if _ghost_run == null:
 		if _track:
-			_open_menu("%s SAVED" % _track.name.to_upper(), "%s · %.2f km · %d checkpoints · par %s. Paid %s. Its neon beacon now marks the start on the map." % [
+			open_menu("%s SAVED" % _track.name.to_upper(), "%s · %.2f km · %d checkpoints · par %s. Paid %s. Its neon beacon now marks the start on the map." % [
 				EchoRun.format_time(_finish_time), _track.length / 1000.0, _track.checkpoints.size() - 2,
 				EchoRun.format_time(par_time(_track)), Wallet.format(_last_course_cost)], [
 				{"text": "Race the new echo", "action": race_echo.bind(_track, _run)},
 				{"text": "Exit race mode", "action": exit_race},
 			], exit_race)
 		else:
-			_open_menu("RUN DISCARDED", "The recording was thrown away.", [
+			open_menu("RUN DISCARDED", "The recording was thrown away.", [
 				{"text": "Record again from the same start   (%s)" % Wallet.format(course_cost()), "action": restart,
 					"enabled": _wallet.can_afford(course_cost())},
 				{"text": "Exit race mode", "action": exit_race},
@@ -606,7 +607,7 @@ func _open_result_menu() -> void:
 		{"text": "Race the same echo again", "action": restart},
 		{"text": "Exit race mode", "action": exit_race},
 	])
-	_open_menu("FINISH  " + EchoRun.format_time(_finish_time), "%s the %s echo by %.3f s.\n%s" % [
+	open_menu("FINISH  " + EchoRun.format_time(_finish_time), "%s the %s echo by %.3f s.\n%s" % [
 		"You beat" if _won else "You lost to", EchoRun.format_time(_ghost_run.time), absf(d), _reward_note], items)
 
 
@@ -618,15 +619,15 @@ func _open_track_menu(t: EchoTrack) -> void:
 	items.append_array([
 		_record_item("Record a new race from here"),
 		{"text": "Delete this echo point", "action": _confirm_delete.bind(t)},
-		{"text": "Close", "action": _close_menu},
+		{"text": "Close", "action": close_menu},
 	])
-	_open_menu(t.name.to_upper(), "%.2f km · %d checkpoints · %s · par %s. Beat par and %s to earn money. Pick the echo to race:" % [
+	open_menu(t.name.to_upper(), "%.2f km · %d checkpoints · %s · par %s. Beat par and %s to earn money. Pick the echo to race:" % [
 		t.length / 1000.0, t.checkpoints.size() - 2, t.style_name(), EchoRun.format_time(par_time(t)),
 		EchoRun.format_time(t.reward_reference())], items)
 
 
 func _confirm_delete(t: EchoTrack) -> void:
-	_open_menu("DELETE %s?" % t.name.to_upper(), "Its %d echo%s will be lost." % [t.runs.size(),
+	open_menu("DELETE %s?" % t.name.to_upper(), "Its %d echo%s will be lost." % [t.runs.size(),
 		"" if t.runs.size() == 1 else "es"], [
 		{"text": "Yes, delete it", "action": _delete_track.bind(t)},
 		{"text": "No", "action": _open_track_menu.bind(t)},
@@ -642,17 +643,26 @@ func _delete_track(t: EchoTrack) -> void:
 	_nearby = null
 	ui.show_prompt("")
 	_update_minimap_points()
-	_close_menu()
+	close_menu()
 
 
-func _open_menu(title: String, subtitle: String, items: Array[Dictionary], on_cancel := Callable(), selected := 0) -> void:
+## Items other systems add to the free-roam Y menu (`free_menu_items`), typed for the menu.
+func _extra_free_items() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	if free_menu_items.is_valid():
+		out.assign(free_menu_items.call())
+	return out
+
+
+## Opens the side menu, pausing the game (other systems, e.g. MissionManager, use it too).
+func open_menu(title: String, subtitle: String, items: Array[Dictionary], on_cancel := Callable(), selected := 0) -> void:
 	if not get_tree().paused:
 		get_tree().paused = true
 		_menu_paused = true
-	ui.open_menu(title, subtitle, items, on_cancel if on_cancel.is_valid() else _close_menu, selected)
+	ui.open_menu(title, subtitle, items, on_cancel if on_cancel.is_valid() else close_menu, selected)
 
 
-func _close_menu() -> void:
+func close_menu() -> void:
 	ui.close_menu()
 	if _menu_paused:
 		get_tree().paused = false

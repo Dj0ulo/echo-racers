@@ -8,7 +8,7 @@
 ##   drive [args]                  headless autodrive --quiet (physics only, no screenshots)
 ##   shots [args]                  display autodrive --quiet, clears/recreates $SHOTS (default /tmp/er_shots),
 ##                                 lists the PNGs saved. e.g. `shots --view=overview --duration=0`
-##   echotest | maptest            end-to-end echo / world-map flows, with shots (display)
+##   echotest | maptest | missiontest  end-to-end echo / world-map / delivery-mission flows, with shots (display)
 ##   crashtest                     scripted crashes against traffic (headless)
 ##   import                        re-import after adding class_name scripts or assets
 ## Args after the command go to the game (after `--`), see the header of scripts/debug/autodrive.gd
@@ -20,7 +20,7 @@ cd "$(dirname "$(readlink -f "$0")")/.." || exit 1
 G=${G:-$HOME/Applications/Godot-stable_linux.x86_64}
 SHOTS=${SHOTS:-/tmp/er_shots}
 FLAGS=${GD_FLAGS:-}
-KEEP='ERROR|SCRIPT|Parse|WARNING|Saved|Rendering|Autodrive done|^---|Crash test|Echo test|Map test|Route '
+KEEP='ERROR|SCRIPT|Parse|WARNING|Saved|Rendering|Autodrive done|^---|Crash test|Echo test|Map test|Mission test|Delivery |Route '
 
 filter() { grep -E "$KEEP" | grep -v 'ObjectDB instances were leaked' | tail -40; }
 
@@ -50,11 +50,12 @@ check)
 drive)
 	timeout 400 "$G" --headless $FLAGS --path . -- --autodrive --quiet "$@" 2>&1 | filter
 	;;
-shots|echotest|maptest)
+shots|echotest|maptest|missiontest)
 	rm -rf "$SHOTS"; mkdir -p "$SHOTS"
 	extra=()
 	[ "$cmd" = echotest ] && extra=(--echotest)
 	[ "$cmd" = maptest ] && extra=(--maptest)
+	[ "$cmd" = missiontest ] && extra=(--missiontest)
 	DISPLAY=${DISPLAY:-:0} timeout 300 "$G" $FLAGS --path . -- --autodrive --quiet "${extra[@]}" --shots="$SHOTS" "$@" 2>&1 | filter
 	ls "$SHOTS"/*.png 2>/dev/null | sed 's/^/png: /'
 	;;
