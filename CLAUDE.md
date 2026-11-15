@@ -11,7 +11,7 @@ tabs, typed GDScript, `##` doc comment at the top of each script.
 - `scripts/game/wallet.gd` (Wallet) money: earn/spend/can_afford, `changed` signal, persisted stats, `Wallet.format()` + R-bar glyph.
 - `scripts/game/pause_menu.gd` (PauseMenu) centered Start/Esc menu: Resume, Save, Quit (EchoUi look).
 - `scripts/game/minimap.gd` (Minimap) heading-up circular minimap, terrain+roads rendered once, shader rotates.
-- `scripts/game/world_map.gd` (WorldMap) Select/M full-screen top-down map: pan, zoom, set the GPS destination.
+- `scripts/game/world_map.gd` (WorldMap) Select/M full-screen top-down map: pan, zoom, GPS destination; snaps onto echo starts/deliveries (info panel, course preview).
 - `scripts/game/gps.gd` (Gps) destination beacon, route on the minimap, gold filament ahead of the car; echo races: the echo's path.
 - `scripts/game/missions.gd` (MissionManager) delivery offers on the roads, accept menu, drop-off, pay by route km.
 - `scripts/game/mission_marker.gd` (MissionMarker) lime neon beacon of an offer / the drop-off.

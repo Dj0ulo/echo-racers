@@ -44,7 +44,12 @@ and the map, which pause the game themselves.
 Press **Select** (M) at any time (except in the echo editor) to pause and open a full-screen top-down map, north
 up. Pan with the left stick / WASD / arrows / mouse drag and zoom with LT/RT / Q E / mouse wheel (or right stick).
 **A** (Enter) puts a destination under the crosshair, or click a spot; **X** (F, Delete) clears it; **B** / Select
-/ Esc closes the map. The destination gets a gold light beam in the world and a gold pin on both maps, and the
+/ Esc closes the map. Echo race starts, delivery offers and the active drop-off snap: bring the mouse pointer (or
+the crosshair, which then eases onto it) near one and it is selected, its course is previewed on the map (the
+echo's best run with numbered checkpoints and a chequered finish, or the delivery's road route to its drop-off) and
+a panel at the top right shows its details (length, best echo, par, reward / cargo, pay, time left, distance by
+road from you) with a GPS button: A / Enter, or a click on the button or the point, sets the destination there.
+The destination gets a gold light beam in the world and a gold pin on both maps, and the
 route (rerouted every 0.8 s) is drawn on both maps and as a glowing gold filament that flies
 20 m above the ground (already at that height above the car), loosely following the route and cutting its bends; when a reroute changes the route it glides onto the new one (`filament_morph`, 0.7 s). The route always starts at the car: it
 follows the road network (A* on a graph of the roads that respects one-way ramps and the highway carriageways) but
@@ -250,12 +255,14 @@ sets the lap length in game time (default 44; `--duration=0` with `--view`s quit
 in the result menu, races its ghost (following its line a bit
 faster), prints the splits and result, saves the new echo, then deletes the scratch course (`user://echoes_test`).
 It also checks the course price is charged on save, prints the par and the race reward, checks the same time is not
-paid twice, and deletes the scratch wallet (`user://wallet_test.cfg`, reset at the start of every `--autodrive` run).
+paid twice, that the world map snaps onto the course start (selection, course preview, GPS button; shot
+`echo_map.png`), and deletes the scratch wallet (`user://wallet_test.cfg`, reset at the start of every `--autodrive` run).
 `--autodrive --maptest [--shots=/abs/dir]` opens the world map through its input action, sets a destination 450 m
 ahead (shots `map.png`, then `filament.png` after closing the map), then routes to the middle of every road and
 prints route vs straight-line distances.
 `--autodrive --missiontest [--shots=/abs/dir]` (`tools/gd missiontest`) spawns a delivery offer just ahead of the
 car, checks its menu opens (shot `mission_offer.png`), accepts it with a simulated ui_accept, checks the GPS route,
-spawns a random offer (world map shot `mission_map.png`), teleports to the drop-off and checks the scratch wallet
+spawns a random offer, checks the world map snaps onto it (selection, route preview, GPS button; shot
+`mission_map.png`), teleports to the drop-off and checks the scratch wallet
 was paid the reward; prints `Mission test: PASS` or `FAIL: <why>`. Real gamepad buttons are ignored during it (Godot reads joypads even
 unfocused; add `--audio-driver Dummy` before `--` to keep test runs silent while someone plays).

@@ -2,10 +2,11 @@ extends Node
 ## Debug: `godot -- --autodrive --missiontest [--quiet] [--shots=/abs/dir]` runs a delivery mission end to end
 ## (scratch wallet, see main.gd): spawns an offer 8 m ahead of the car on its road, checks that stopping in its
 ## ring opens the offer menu (shot `mission_offer.png`), accepts it through the real ui_accept action, checks
-## the GPS route to the drop-off, spawns a random offer (world map shot `mission_map.png`), teleports the car
-## onto the drop-off and checks the wallet was paid the offer's reward (+ the logged tip, if any;
-## `tip_for` is also sampled for its range), then accepts a second offer, runs its
-## delivery clock down and checks it is cancelled without pay. Prints "Mission test: PASS" or "FAIL: ...". Real gamepad buttons are
+## the GPS route to the drop-off, spawns a random offer, checks the world map snaps onto it (selection, route
+## preview, GPS button; shot `mission_map.png`), teleports the car onto the drop-off and checks the wallet was
+## paid the offer's reward (+ the logged tip, if any; `tip_for` is also sampled for its range), then accepts a
+## second offer, runs its delivery clock down and checks it is cancelled without pay. Prints "Mission test: PASS"
+## or "FAIL: ...". Real gamepad buttons are
 ## ignored during the test.
 
 var _main: Node
@@ -15,6 +16,7 @@ var _shots := ""
 var _offer: MissionManager.Offer
 var _balance := 0
 var _late: MissionManager.Offer
+var _extra: MissionManager.Offer
 
 
 func _ready() -> void:
@@ -81,10 +83,28 @@ func _process(delta: float) -> void:
 				extra.target_offroad]))
 			var map: WorldMap = _main.get(&"world_map")
 			map.open()
+			if extra:
+				map.look_at_xz(Vector2(extra.pickup.x, extra.pickup.z) + Vector2(20.0, 0.0))  # Snap must pull it in.
+			_extra = extra
 			_next(0.5)
 		3:
+			var map: WorldMap = _main.get(&"world_map")
+			if _extra:
+				var sel := map.selection()
+				if sel.get("ref") != _extra or map.preview_points().size() < 3:
+					_fail("world map did not select the offer (selection %s, preview %d points)" % [sel.get("kind", "none"),
+						map.preview_points().size()])
+					return
+				print("Mission test: map selects the offer, preview %d points" % map.preview_points().size())
 			_shot("mission_map.png")
-			(_main.get(&"world_map") as WorldMap).close()
+			if _extra:
+				map.activate_selection()
+				if Vector2(gps.destination.x - _extra.pickup.x, gps.destination.z - _extra.pickup.z).length() > 1.0:
+					_fail("the map's GPS button did not route to the offer")
+					return
+				print("Mission test: map GPS button routes to the offer (%.0f m)" % gps.route_length)
+				gps.set_destination(_offer.target)
+			map.close()
 			var dir := Vector3(_offer.target.x - car.global_position.x, 0.0, _offer.target.z - car.global_position.z)
 			car.reset_to(Transform3D(Basis.looking_at(dir.normalized(), Vector3.UP), _offer.target + Vector3.UP * 1.0))
 			(_main.get(&"chase_camera") as ChaseCamera).snap()

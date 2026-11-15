@@ -65,7 +65,7 @@ func _ready() -> void:
 	world_map = WorldMap.new()
 	world_map.name = "WorldMap"
 	add_child(world_map)
-	world_map.setup(world, car, hud, env, gps, echo)
+	world_map.setup(world, car, hud, env, gps, echo, missions)
 	pause_menu = PauseMenu.new()
 	pause_menu.name = "PauseMenu"
 	add_child(pause_menu)

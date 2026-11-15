@@ -7,7 +7,8 @@ extends Node
 ## it won, then deletes the scratch course (stored in user://echoes_test, never the player's echoes).
 ## Economy: checks the course price is charged on save (scratch wallet user://wallet_test.cfg, reset by main.gd
 ## for every --autodrive run, deleted at the end), prints the par time and the race reward, and that a second
-## payout of the same time is refused.
+## payout of the same time is refused. Then the world map: snapping onto the course start selects it, previews its
+## course and the panel's GPS button routes there (shot `echo_map.png`).
 
 const RECORD_SECONDS := 14.0
 
@@ -111,7 +112,7 @@ func _process(delta: float) -> void:
 				_next(2.5)
 			elif _echo._time > RECORD_SECONDS * 2.5:
 				print("Echo test: FAILED, no finish after %.0f s (next checkpoint %d)" % [_echo._time, _echo._next_cp])
-				_phase = 11
+				_phase = 12
 		10:
 			if _echo._won:
 				_echo.save_new_echo()
@@ -122,8 +123,29 @@ func _process(delta: float) -> void:
 			print("Echo test: %d echoes, best first: %s" % [t.runs.size(), ", ".join(times)])
 			var reloaded := EchoTrack.load_all()
 			print("Echo test: reload ok = %s" % [reloaded.size() == 1 and reloaded[0].runs.size() == t.runs.size()])
-			_next(0.5)
-		11:
+			if _echo.state != EchoManager.State.FREE:
+				_echo.exit_race()
+			_echo.close_menu()
+			var map: WorldMap = get_parent().get(&"world_map")
+			map.open()
+			var o := t.start.origin
+			map.look_at_xz(Vector2(o.x - 15.0, o.z + 10.0))  # Off the start: the snap must pull it in.
+			_next(0.6)
+		11:  # World map: the echo start is selected, its course previewed, the panel's button routes there.
+			var map: WorldMap = get_parent().get(&"world_map")
+			var t: EchoTrack = _echo.tracks.back()
+			var sel := map.selection()
+			print("Echo test: map selects the echo start = %s, preview %d points" % [sel.get("ref") == t,
+				map.preview_points().size()])
+			_shot("echo_map.png")
+			map.activate_selection()
+			var gps: Gps = get_parent().get(&"gps")
+			print("Echo test: map GPS button routes to the start = %s" % [gps.has_destination
+				and Vector2(gps.destination.x - t.start.origin.x, gps.destination.z - t.start.origin.z).length() < 1.0])
+			gps.clear_destination()
+			map.close()
+			_next(0.3)
+		12:
 			for t in EchoTrack.load_all():
 				t.erase()
 			DirAccess.remove_absolute(Wallet.path)
