@@ -49,8 +49,9 @@ route (rerouted every 0.8 s) is drawn on both maps and as a glowing gold filamen
 20 m above the ground (already at that height above the car), loosely following the route and cutting its bends; when a reroute changes the route it glides onto the new one (`filament_morph`, 0.7 s). The route always starts at the car: it
 follows the road network (A* on a graph of the roads that respects one-way ramps and the highway carriageways) but
 crosses the fields to join it, to leave it, or skips it entirely whenever that is shorter (off-road metres count
-1.6x, `offroad_cost`). The filament and the minimap route are hidden during echo races, recording and the editor,
-as are the destination beacon and the echo beacons (only the checkpoints show). Reaching the destination clears it.
+1.6x, `offroad_cost`). The GPS filament and minimap route are hidden during echo races, recording and the editor,
+as are the destination beacon and the echo beacons (only the checkpoints show; in a race the filament follows the
+echo's path instead, see below). Reaching the destination clears it.
 Code: `scripts/game/world_map.gd`, `gps.gd` (filament, beacon), `road_graph.gd` (route finding).
 
 ## Echo races
@@ -74,8 +75,10 @@ recorded. Press Y whenever you want and **End the race & place checkpoints**: a 
 
 Drive into a beacon and press Y to see its echoes, best first, and pick the one to race: 3-2-1-GO, then pass every
 checkpoint in order (the next one pulses; it is also the pink marker on the minimap) against a hologram ghost of the
-echo. The HUD shows the time and your split against the echo at each checkpoint. During a race Y offers restart
-from the start or exit; reset puts you back on the last checkpoint passed. Beat the echo and you can save your run
+echo (also a cyan arrow on the minimap). The HUD shows the time and your split against the echo at each checkpoint.
+The gold filament and the minimap route follow the raced echo's path from the car to the finish (kept on the
+current leg between checkpoints, `Gps.race_step` / `race_lost`). During a race Y offers restart from the start,
+**Direction line: On/Off** (toggles that line, kept for the session) or exit; reset puts you back on the last checkpoint passed. Beat the echo and you can save your run
 as a new echo of that course (older ones are kept), then race that new echo straight away. Every race (and restart)
 starts with a full boost gauge. The editor's ghost-car cursor grows with the zoom only up to a cap
 (`EchoEditor.cursor_max_scale`). Courses are saved in `user://echoes/` (one `.echo` file each,

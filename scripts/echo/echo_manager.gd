@@ -13,6 +13,7 @@ enum State { FREE, COUNTDOWN, RECORDING, RACING, FINISHED, EDITING }
 @export var result_menu_delay := 1.6  ## Seconds between crossing the finish and the result menu.
 
 var state := State.FREE
+var race_line := true             ## Gold direction line along the raced echo's path (toggled in the race menu).
 var tracks: Array[EchoTrack] = []
 var ui: EchoUi
 
@@ -147,6 +148,7 @@ func _process(_delta: float) -> void:
 		for p: EchoPoint in _points.values():
 			p.visible = free
 		_minimap.show_markers = free
+	_minimap.ghost = _ghost if state in [State.COUNTDOWN, State.RACING, State.FINISHED] else null
 	var has_target := state in [State.COUNTDOWN, State.RACING] and _track != null and _next_cp < _track.checkpoints.size()
 	_minimap.echo_target_active = has_target
 	if has_target:
@@ -366,7 +368,29 @@ func _clear_race() -> void:
 		c.queue_free()
 	_gates.clear()
 	_ghost = null
+	_minimap.ghost = null
 	_minimap.echo_target_active = false
+
+
+## The echo whose path the GPS draws as the direction line: set while racing with `race_line` on, else null.
+func race_line_run() -> EchoRun:
+	if race_line and _track != null and _ghost_run != null and state in [State.COUNTDOWN, State.RACING]:
+		return _ghost_run
+	return null
+
+
+## Index (into the track's checkpoints) of the next checkpoint to pass in a race.
+func next_checkpoint() -> int:
+	return _next_cp
+
+
+func _race_line_text() -> String:
+	return "Direction line: %s" % ("On" if race_line else "Off")
+
+
+func _toggle_race_line(item: int) -> void:
+	race_line = not race_line
+	ui.set_item_text(item, _race_line_text())
 
 
 ## Back from the editor to the car view (tree still paused): the result menu offers racing the new echo
@@ -456,6 +480,7 @@ func _open_race_menu() -> void:
 		items.append({"text": "Save as a new echo", "action": save_new_echo})
 	items.append_array([
 		{"text": "Restart from the start", "action": restart},
+		{"text": _race_line_text(), "action": _toggle_race_line.bind(items.size() + 1)},
 		{"text": "Exit race mode", "action": exit_race},
 		{"text": "Resume", "action": _close_menu},
 	])

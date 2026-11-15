@@ -56,6 +56,7 @@ var destination := Vector3.ZERO          ## GPS destination (gold pin, pinned to
 var destination_active := false          ## ...shown while this is set.
 var route := PackedVector3Array()        ## GPS route drawn as a gold line (empty = none).
 var show_markers := true                 ## Echo points and the GPS pin (hidden during echo races).
+var ghost: Node3D                        ## Echo ghost raced against, drawn as a neon arrow (null = none).
 
 var _map: ColorRect
 var _overlay: Control
@@ -287,6 +288,8 @@ func _draw_overlay() -> void:
 		_draw_echo_marker(c, r, _to_screen(Vector2(p.x, p.z), pos, axes, r), Color(ECHO_COLOR, pulse), 7.0)
 	if echo_target_active:
 		_draw_echo_marker(c, r, _to_screen(Vector2(echo_target.x, echo_target.z), pos, axes, r), ECHO_TARGET_COLOR, 8.0)
+	if is_instance_valid(ghost) and ghost.visible:
+		_draw_ghost(c, r, pos, axes)
 
 	# Rim.
 	_overlay.draw_arc(c, r - 1.0, 0.0, TAU, 96, RIM, 2.0, true)
@@ -320,6 +323,30 @@ func _draw_echo_marker(c: Vector2, r: float, s: Vector2, col: Color, size: float
 	_overlay.draw_colored_polygon(diamond, col)
 	diamond.append(diamond[0])
 	_overlay.draw_polyline(diamond, Color(1, 1, 1, 0.9), 1.4, true)
+
+
+## The echo ghost: a neon arrow along its heading; shrunk and pinned to the rim when off the map.
+func _draw_ghost(c: Vector2, r: float, pos: Vector2, axes: Array[Vector2]) -> void:
+	var g := ghost.global_position
+	var s := _to_screen(Vector2(g.x, g.z), pos, axes, r)
+	var size_k := 0.85
+	var edge := r - 12.0
+	if s.length() > edge:
+		s = s.normalized() * edge
+		size_k = 0.6
+	var f := -ghost.global_basis.z
+	var dir := Vector2(f.x, f.z)
+	var angle := 0.0
+	if dir.length_squared() > 1e-6:
+		angle = Vector2(dir.dot(axes[1]), -dir.dot(axes[0])).angle() + PI * 0.5
+	var p := c + s
+	var arrow := PackedVector2Array()
+	for v: Vector2 in [Vector2(0, -10), Vector2(7, 8), Vector2(0, 4), Vector2(-7, 8)]:
+		arrow.append(p + (v * size_k).rotated(angle))
+	_overlay.draw_circle(p, 11.0 * size_k, Color(ECHO_COLOR, 0.25))
+	_overlay.draw_colored_polygon(arrow, ECHO_COLOR)
+	arrow.append(arrow[0])
+	_overlay.draw_polyline(arrow, Color(1, 1, 1, 0.9), 1.4, true)
 
 
 ## The route as a cased gold polyline, split where it leaves the circle.

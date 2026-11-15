@@ -6,7 +6,9 @@ extends Node3D
 ## country when the destination is off-road, or skips the roads entirely when going straight is shorter
 ## (off-road metres cost `offroad_cost`). It is drawn on the minimap and as a glowing filament that starts
 ## 20 m above the car and flies loosely above the route (smoothed, cutting the bends) toward the
-## destination; after a reroute it glides onto the new route over `filament_morph` seconds. The filament and minimap route are hidden outside free roam (echo races, recording, editor).
+## destination; after a reroute it glides onto the new route over `filament_morph` seconds. Outside free roam the
+## GPS route is hidden; during an echo race (if `EchoManager.race_line` is on) the filament and the minimap route
+## follow the raced echo's path instead, from the car to the finish.
 
 const COLOR := Color(1.0, 0.72, 0.22)
 
@@ -36,6 +38,8 @@ void fragment() {
 @export var arrive_radius := 28.0      ## Destination reached within this horizontal distance (m).
 @export var reroute_interval := 0.8    ## Seconds between route updates while driving.
 @export var beam_height := 220.0
+@export var race_step := 3.0           ## Spacing (m) of the echo path used as the race direction line.
+@export var race_lost := 25.0          ## Off the echo path by more than this (m): search its whole current leg.
 
 var has_destination := false
 var destination := Vector3.ZERO
@@ -57,6 +61,11 @@ var _old_route := PackedVector3Array()     ## Route before the last reroute, fad
 var _old_dist := PackedFloat32Array()
 var _old_near := 0
 var _morph := 1.0                          ## 0 -> 1 blend from `_old_route` to `route`.
+var _race_run: EchoRun                     ## Echo whose path is the direction line during a race (null = none).
+var _race_route := PackedVector3Array()    ## Its path, resampled every ~`race_step` metres.
+var _race_dist := PackedFloat32Array()
+var _race_cp := PackedInt32Array()         ## `_race_route` index of each checkpoint (from the echo's splits).
+var _race_near := 0
 
 
 func setup(world: WorldGenerator, car: CarController, minimap: Minimap, echo: EchoManager) -> void:
@@ -171,6 +180,17 @@ func _append_offroad(p: Vector3) -> void:
 
 
 func _process(delta: float) -> void:
+	var run := _echo.race_line_run() if _echo else null
+	if run != _race_run:
+		_set_race_run(run)
+	if _race_run != null:
+		_beacon.visible = false
+		_race_near = _race_nearest(_car.global_position)
+		_minimap.route = _race_route.slice(_race_near)
+		_filament.visible = _race_route.size() >= 2
+		if _filament.visible:
+			_build_filament(_race_route, _race_dist, _race_near, false)
+		return
 	if not has_destination:
 		return
 	var free := _echo == null or _echo.state == EchoManager.State.FREE
@@ -188,7 +208,56 @@ func _process(delta: float) -> void:
 	_filament.visible = free and route.size() >= 2
 	_morph = minf(_morph + delta / maxf(filament_morph, 0.001), 1.0)
 	if _filament.visible:
-		_build_filament()
+		_near_i = _nearest(route, _near_i, car_pos)
+		_build_filament(route, _route_dist, _near_i, true)
+
+
+## Direction line of an echo race: the raced echo's path from GO to the finish (null run = back to the GPS).
+func _set_race_run(run: EchoRun) -> void:
+	_race_run = run
+	_race_route = PackedVector3Array()
+	_race_dist = PackedFloat32Array()
+	_race_cp = PackedInt32Array()
+	_race_near = 0
+	_filament.visible = false
+	_minimap.route = PackedVector3Array()
+	if run == null or run.positions.is_empty():
+		return
+	var n := run.positions.size()
+	var to_route := PackedInt32Array()
+	to_route.resize(n)
+	for i in n:
+		var p := run.positions[i]
+		if _race_route.is_empty() or i == n - 1 or _flat(p, _race_route[_race_route.size() - 1]) >= race_step:
+			if not _race_route.is_empty():
+				_race_dist.append(_race_dist[_race_dist.size() - 1] + p.distance_to(_race_route[_race_route.size() - 1]))
+			else:
+				_race_dist.append(0.0)
+			_race_route.append(p)
+		to_route[i] = _race_route.size() - 1
+	for t in run.splits:
+		_race_cp.append(to_route[clampi(roundi(t * EchoRun.RATE), 0, n - 1)])
+
+
+## Closest point of the echo path, kept on the current leg (last checkpoint passed -> next one) so a course
+## crossing itself never jumps ahead; searched over the whole leg when the car is far off the path.
+func _race_nearest(pos: Vector3) -> int:
+	var last := _race_route.size() - 1
+	var lo := 0
+	var hi := last
+	if _race_cp.size() >= 2:
+		var cp := clampi(_echo.next_checkpoint(), 1, _race_cp.size() - 1)
+		lo = _race_cp[cp - 1]
+		hi = _race_cp[cp]
+	var near := clampi(_nearest(_race_route, clampi(_race_near, lo, hi), pos), lo, hi)
+	if _race_route[near].distance_to(pos) > race_lost:
+		var best_d := INF
+		for i in range(lo, hi + 1):
+			var d := _race_route[i].distance_squared_to(pos)
+			if d < best_d:
+				best_d = d
+				near = i
+	return near
 
 
 ## Chaikin corner cutting (2 passes) so the 8 m graph nodes make a smooth line.
@@ -205,17 +274,18 @@ func _smooth(pts: PackedVector3Array) -> PackedVector3Array:
 	return pts
 
 
-func _build_filament() -> void:
+## Filament along route `rt` (`dist` = metres along it) from point `near`; `morph` glides from the old route.
+func _build_filament(rt: PackedVector3Array, dist: PackedFloat32Array, near: int, morph: bool) -> void:
 	_mesh.clear_surfaces()
 	var car_pos := _car.global_position
-	_near_i = _nearest(route, _near_i, car_pos)
-	var s1 := minf(_route_dist[_near_i] + 3.0 + filament_length, route_length)
-	var ground := _ground_line(route, _route_dist, _near_i, car_pos)
+	var length := dist[dist.size() - 1]
+	var s1 := minf(dist[near] + 3.0 + filament_length, length)
+	var ground := _ground_line(rt, dist, near, car_pos)
 	var n := ground.size()
 	if n < 3:
 		return
 	# Right after a reroute, glide from the line of the previous route onto the new one.
-	if _morph < 1.0 and _old_route.size() >= 2:
+	if morph and _morph < 1.0 and _old_route.size() >= 2:
 		_old_near = _nearest(_old_route, _old_near, car_pos)
 		var old := _ground_line(_old_route, _old_dist, _old_near, car_pos)
 		var w := smoothstep(0.0, 1.0, _morph)
@@ -241,8 +311,8 @@ func _build_filament() -> void:
 		centre.append(p)
 		along.append(a)
 	var total := along[n - 1]
-	var to_end := s1 >= route_length - 0.5
-	var u0 := _route_dist[_near_i]  # Pulses keep flowing along the route, not with the car.
+	var to_end := s1 >= length - 0.5
+	var u0 := dist[near]  # Pulses keep flowing along the route, not with the car.
 	var cam := get_viewport().get_camera_3d()
 	var eye := cam.global_position if cam else car_pos + Vector3.UP * 5.0
 	var verts := PackedVector3Array()

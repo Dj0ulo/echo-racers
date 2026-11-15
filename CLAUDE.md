@@ -11,7 +11,7 @@ tabs, typed GDScript, `##` doc comment at the top of each script.
 - `scripts/game/pause_menu.gd` (PauseMenu) centered Start/Esc menu: Resume, Save, Quit (EchoUi look).
 - `scripts/game/minimap.gd` (Minimap) heading-up circular minimap, terrain+roads rendered once, shader rotates.
 - `scripts/game/world_map.gd` (WorldMap) Select/M full-screen top-down map: pan, zoom, set the GPS destination.
-- `scripts/game/gps.gd` (Gps) destination beacon, route on the minimap, gold filament ahead of the car (free roam only).
+- `scripts/game/gps.gd` (Gps) destination beacon, route on the minimap, gold filament ahead of the car; echo races: the echo's path.
 - `scripts/game/road_graph.gd` (RoadGraph) AStar3D graph of the road network (one-way ramps, carriageways).
 - `scripts/vehicle/car_controller.gd` (CarController) RigidBody3D, raycast suspension, arcade tyre physics, exported tunables.
 - `scripts/vehicle/vehicle_input.gd` (VehicleInput) input actions to normalized commands (AI can drive too).
