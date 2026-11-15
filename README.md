@@ -142,8 +142,8 @@ field; the GPS leaves the road at the nearest point and the filament goes straig
 
 The drop-off is a random spot (roadside or field) 600 m - 3 km away by road. It gets a tall lime light beam and a lime pin on
 the minimap and world map, and the GPS routes to it. Drive within 25 m of it (free roam) to deliver: the reward is
-paid with a "DELIVERED" banner. Each offer has a **time limit**, shown in its menu: 30 s + the route at an
-average 45 km/h, rounded up to 5 s (about 1:20 for 600 m, 2:40 for 1.6 km, 4:30 for 3 km). It starts on Accept and
+paid with a "DELIVERED" banner. Each offer has a **time limit**, shown in its menu: 10 s + the route at an
+average 120 km/h, rounded up to 5 s (about 0:30 for 600 m, 1:00 for 1.6 km, 1:40 for 3 km). It starts on Accept and
 counts down at the top of the screen (in the echo-race timer style, lime, red with a beep every second in the last
 10-20 s); it stops while the game is paused (pause menu, world map, menus) but keeps running during an echo race. If
 it runs out the delivery is cancelled: no pay, the beam, pin and GPS route are cleared and a "TIME'S UP" banner shows
