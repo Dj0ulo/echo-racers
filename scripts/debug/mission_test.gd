@@ -3,7 +3,8 @@ extends Node
 ## (scratch wallet, see main.gd): spawns an offer 8 m ahead of the car on its road, checks that stopping in its
 ## ring opens the offer menu (shot `mission_offer.png`), accepts it through the real ui_accept action, checks
 ## the GPS route to the drop-off, spawns a random offer (world map shot `mission_map.png`), teleports the car
-## onto the drop-off and checks the wallet was paid the offer's reward. Prints "Mission test: PASS" or "FAIL: ...". Real gamepad buttons are
+## onto the drop-off and checks the wallet was paid the offer's reward, then accepts a second offer, runs its
+## delivery clock down and checks it is cancelled without pay. Prints "Mission test: PASS" or "FAIL: ...". Real gamepad buttons are
 ## ignored during the test.
 
 var _main: Node
@@ -12,6 +13,7 @@ var _wait := 4.0
 var _shots := ""
 var _offer: MissionManager.Offer
 var _balance := 0
+var _late: MissionManager.Offer
 
 
 func _ready() -> void:
@@ -45,9 +47,13 @@ func _process(delta: float) -> void:
 			if _offer == null:
 				_fail("no drop-off found for an offer on %s" % road.name)
 				return
-			print("Mission test: offer '%s', %.0f m by road (straight %.0f m), reward %d, drop-off %s" % [_offer.cargo,
-				_offer.route_length, Vector2(_offer.target.x - _offer.pickup.x, _offer.target.z - _offer.pickup.z).length(),
-				_offer.reward, "off-road" if _offer.target_offroad else "roadside"])
+			print("Mission test: offer '%s', %.0f m by road (straight %.0f m), reward %d, time limit %s, drop-off %s" % [
+				_offer.cargo, _offer.route_length,
+				Vector2(_offer.target.x - _offer.pickup.x, _offer.target.z - _offer.pickup.z).length(), _offer.reward,
+				MissionManager.format_clock(_offer.time_limit), "off-road" if _offer.target_offroad else "roadside"])
+			if not _offer.time_limit > 0.0:
+				_fail("no delivery time limit (%.1f s)" % _offer.time_limit)
+				return
 			car.reset_to(road.transform_at(i - 4, 0.6))
 			(_main.get(&"chase_camera") as ChaseCamera).snap()
 			_balance = wallet.balance
@@ -89,6 +95,26 @@ func _process(delta: float) -> void:
 					_offer.reward, gps.has_destination])
 				return
 			print("Mission test: delivered, paid %s -> balance %d" % [paid, wallet.balance])
+			var road := world.road
+			_late = missions.spawn_offer_at(road, road.nearest_index(car.global_position))
+			if _late == null:
+				_fail("no second offer for the time-limit check")
+				return
+			missions.accept_offer(_late)
+			if missions.active != _late or _late.delivery_left != _late.time_limit:
+				_fail("second offer not accepted with its full time (%.1f of %.1f s)" % [_late.delivery_left,
+					_late.time_limit])
+				return
+			_late.delivery_left = 0.05
+			_balance = wallet.balance
+			_next(0.5)
+		5:
+			if missions.active != null or wallet.balance != _balance or gps.has_destination:
+				_fail("expired delivery not cancelled (active %s, balance %+d, gps %s)" % [missions.active != null,
+					wallet.balance - _balance, gps.has_destination])
+				return
+			print("Mission test: time limit %s ran out -> delivery cancelled, no pay" %
+				MissionManager.format_clock(_late.time_limit))
 			print("Mission test: PASS")
 			_phase = 99
 			get_tree().quit()

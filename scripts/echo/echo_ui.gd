@@ -308,6 +308,12 @@ func show_countdown(n: int) -> void:
 	_player.play()
 
 
+## Short countdown beep (`high`: the long GO / time's-up tone).
+func beep(high := false) -> void:
+	_player.stream = _beep_high if high else _beep_low
+	_player.play()
+
+
 func hide_countdown() -> void:
 	_countdown_label.visible = false
 

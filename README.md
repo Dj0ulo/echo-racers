@@ -137,7 +137,12 @@ field; the GPS leaves the road at the nearest point and the filament goes straig
 
 The drop-off is a random spot (roadside or field) 600 m - 3 km away by road. It gets a tall lime light beam and a lime pin on
 the minimap and world map, and the GPS routes to it. Drive within 25 m of it (free roam) to deliver: the reward is
-paid with a "DELIVERED" banner. Reward = route km (including the straight field legs) × R⃒160 × a random factor in [0.85, 1.2], rounded to R⃒5 (about
+paid with a "DELIVERED" banner. Each offer has a **time limit**, shown in its menu: 30 s + the route at an
+average 45 km/h, rounded up to 5 s (about 1:20 for 600 m, 2:40 for 1.6 km, 4:30 for 3 km). It starts on Accept and
+counts down at the top of the screen (in the echo-race timer style, lime, red with a beep every second in the last
+10-20 s); it stops while the game is paused (pause menu, world map, menus) but keeps running during an echo race. If
+it runs out the delivery is cancelled: no pay, the beam, pin and GPS route are cleared and a "TIME'S UP" banner shows
+(`deliveries_failed` stat). Reward = route km (including the straight field legs) × R⃒160 × a random factor in [0.85, 1.2], rounded to R⃒5 (about
 R⃒250 for a 1.6 km delivery). While a delivery is active, the free-roam Y menu can point the GPS back to the
 drop-off (after you set another destination on the map) or abandon the delivery (no pay, no penalty).
 Missions are not saved: open offers and the active delivery are gone after a restart (the money earned is kept).
@@ -145,7 +150,7 @@ The wallet counts completed deliveries (`deliveries` stat).
 
 Code: `scripts/game/missions.gd` (`MissionManager`, all tunables exported: `first_offer_delay`,
 `spawn_interval_min/max`, `max_offers`, `offer_lifetime`, `min_offer_distance`, `pickup_radius`,
-`pickup_speed_kmh`, `delivery_radius`, `min_route`, `max_route`, `pay_per_km`, `pay_random_min/max`, `pay_step`, `offroad_chance`, `offroad_min_distance`, `offroad_max_distance`,
+`pickup_speed_kmh`, `delivery_radius`, `min_route`, `max_route`, `pay_per_km`, `pay_random_min/max`, `pay_step`, `time_base`, `time_avg_speed_kmh`, `time_step`, `time_warning`, `time_beep`, `offroad_chance`, `offroad_min_distance`, `offroad_max_distance`,
 `offroad_max_slope`, `offroad_clearance`),
 `scripts/game/mission_marker.gd` (`MissionMarker`, the lime beacon). Debug runs (`--autodrive`) get no random
 offers.

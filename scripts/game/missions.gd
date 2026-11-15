@@ -11,7 +11,10 @@ extends Node
 ## come back. An accepted offer becomes the one active delivery: its drop-off, a random spot (roadside or field,
 ## likewise) `min_route`..`max_route` metres away by road, gets a lime light beam and pin and the GPS route;
 ## driving there (free roam) pays route km (field legs included) × `pay_per_km` × a random factor, through the
-## Wallet. The free-roam Y menu can re-route the GPS to the drop-off or abandon the delivery.
+## Wallet. It must be delivered within the offer's time limit (`time_base` + route at `time_avg_speed_kmh`, rounded
+## up to `time_step`), counted down on the EchoUi race HUD in free roam (red and beeping at the end, paused with
+## the tree); when it runs out the delivery is cancelled without pay ("TIME'S UP").
+## The free-roam Y menu can re-route the GPS to the drop-off or abandon the delivery.
 ## Missions are not saved: offers and the active delivery are lost on restart (the wallet is kept).
 
 const COLOR := Color(0.62, 1.0, 0.22)  ## Lime: offers, drop-off beam and pins (distinct from echo cyan, GPS gold).
@@ -40,6 +43,11 @@ const COMPASS: Array[String] = ["north", "north-east", "east", "south-east", "so
 @export var pay_random_min := 0.85        ## ...times a random factor in [min, max]...
 @export var pay_random_max := 1.2
 @export var pay_step := 5                 ## ...rounded to this.
+@export var time_base := 30.0             ## Delivery time limit: this many seconds...
+@export var time_avg_speed_kmh := 45.0    ## ...plus the route driven at this average speed...
+@export var time_step := 5.0              ## ...rounded up to this (s).
+@export var time_warning := 20.0          ## The countdown turns red in the last seconds...
+@export var time_beep := 10.0             ## ...and beeps every second in the last ones.
 @export var beam_height := 160.0          ## Light beam over the active drop-off.
 @export_range(0.0, 1.0) var offroad_chance := 0.4  ## Share of offers / drop-offs placed off the road, in a field.
 @export var offroad_min_distance := 20.0  ## Off-road spots lie this far from the road edge...
@@ -57,7 +65,9 @@ class Offer:
 	var target_offroad := false
 	var reward := 0
 	var cargo := ""
-	var time_left := 0.0
+	var time_left := 0.0        ## Until the untaken offer expires (s).
+	var time_limit := 0.0       ## Delivery time allowed once accepted (s).
+	var delivery_left := 0.0    ## Delivery time remaining while active (s).
 	var declined := false       ## Declined while the car is still in the ring: no new prompt until it leaves.
 	var hinted := false         ## "Slow down" hint shown for this visit.
 	var marker: MissionMarker
@@ -79,6 +89,8 @@ var _road_total := 0.0
 var _target_marker: MissionMarker
 var _banner_time := 0.0
 var _markers_shown := true
+var _timer_shown := false         ## The delivery countdown owns the EchoUi race HUD (free roam only).
+var _last_beep := 0
 
 
 func setup(world: WorldGenerator, car: CarController, echo: EchoManager, gps: Gps, wallet: Wallet,
@@ -125,8 +137,13 @@ func _physics_process(delta: float) -> void:
 			continue
 		_open_offer_menu(o)
 		break
-	if active and free and _flat(pos, active.target) < delivery_radius:
-		_complete()
+	if active:
+		# Physics process stops while the tree is paused (pause menu, world map, menus): so does the clock.
+		active.delivery_left -= delta
+		if free and _flat(pos, active.target) < delivery_radius:
+			_complete()
+		elif active.delivery_left <= 0.0:
+			_expire()
 
 
 func _process(delta: float) -> void:
@@ -137,6 +154,7 @@ func _process(delta: float) -> void:
 			o.marker.visible = free
 		if _target_marker:
 			_target_marker.visible = free
+	_update_timer(free)
 	if _banner_time > 0.0:
 		_banner_time -= delta
 		if _banner_time <= 0.0 and free:
@@ -173,6 +191,7 @@ func spawn_offer_at(road: RoadPath, i: int, allow_offroad := false) -> Offer:
 		/ pay_step) * pay_step, pay_step)
 	o.cargo = CARGO[_rng.randi_range(0, CARGO.size() - 1)]
 	o.time_left = offer_lifetime
+	o.time_limit = time_limit_for(o.route_length)
 	o.marker = MissionMarker.new()
 	o.marker.name = "DeliveryOffer"
 	add_child(o.marker)
@@ -206,6 +225,19 @@ func _pick_destination(o: Offer) -> bool:
 	return false
 
 
+## Delivery time allowed for a route of `route_length` metres: `time_base` + the route at `time_avg_speed_kmh`,
+## rounded up to `time_step`.
+func time_limit_for(route_length: float) -> float:
+	var t := time_base + route_length / 1000.0 / maxf(time_avg_speed_kmh, 1.0) * 3600.0
+	return ceilf(t / maxf(time_step, 0.1)) * maxf(time_step, 0.1)
+
+
+## m:ss, rounded up (a countdown shows 0:00 only once it has run out).
+static func format_clock(t: float) -> String:
+	var s := maxi(ceili(t), 0)
+	return "%d:%02d" % [s / 60, s % 60]
+
+
 ## Metres by road from `from` (leaving along `heading`) to `to`, INF when there is no route. Includes the
 ## straight legs between the end points and the road network (so off-road spots pay their field crossing).
 func _route_length(graph: RoadGraph, from: Vector3, heading: Vector3, to: Vector3) -> float:
@@ -222,16 +254,15 @@ func _open_offer_menu(o: Offer) -> void:
 	var dir := o.target - o.pickup
 	var heading := fposmod(atan2(dir.x, -dir.z), TAU)  # 0 = north (-z), clockwise.
 	var compass := COMPASS[roundi(heading / (TAU / 8.0)) % 8]
-	var mins := int(o.time_left) / 60
 	var accept := {"text": "Accept   (%s on delivery)" % Wallet.format(o.reward), "action": accept_offer.bind(o)}
 	var note := ""
 	if active:
 		accept = {"text": "Accept   (finish your current delivery first)", "action": accept_offer.bind(o),
 			"enabled": false}
 		note = "\nYou already have a delivery to make."
-	_echo.open_menu("DELIVERY", "%s for a customer %.1f km %s of here: %.1f km by road. Pays %s. The offer stays open %d:%02d.%s" % [
+	_echo.open_menu("DELIVERY", "%s for a customer %.1f km %s of here: %.1f km by road. Pays %s if delivered within %s. The offer stays open %s.%s" % [
 		o.cargo, _flat(o.pickup, o.target) / 1000.0, compass, o.route_length / 1000.0, Wallet.format(o.reward),
-		mins, int(o.time_left) % 60, note + _offroad_note(o)], [
+		format_clock(o.time_limit), format_clock(o.time_left), note + _offroad_note(o)], [
 		accept,
 		{"text": "Decline", "action": _decline.bind(o)},
 	], _decline.bind(o))
@@ -249,6 +280,8 @@ func accept_offer(o: Offer) -> void:
 		return
 	_remove_offer(o)
 	active = o
+	o.delivery_left = o.time_limit
+	_last_beep = 0
 	_target_marker = MissionMarker.new()
 	_target_marker.name = "DeliveryDropOff"
 	add_child(_target_marker)
@@ -256,7 +289,8 @@ func accept_offer(o: Offer) -> void:
 	_target_marker.visible = _markers_shown
 	_gps.set_destination(o.target)
 	_sync_minimap()
-	_echo.ui.toast("Delivery accepted: follow the GPS to the lime beam (%.1f km)" % (o.route_length / 1000.0))
+	_echo.ui.toast("Delivery accepted: follow the GPS to the lime beam (%.1f km in %s)" % [o.route_length / 1000.0,
+		format_clock(o.time_limit)])
 
 
 ## Drops the active delivery without pay.
@@ -269,13 +303,50 @@ func abandon() -> void:
 
 func _complete() -> void:
 	var o := active
+	# Hook for a future early-arrival tip: `time_left` of the `o.time_limit` allowed.
+	var time_left := maxf(o.delivery_left, 0.0)
 	_clear_active()
 	_wallet.earn(o.reward, "Delivery")
 	_wallet.set_stat("deliveries", int(_wallet.get_stat("deliveries", 0)) + 1)
 	_echo.ui.show_banner("DELIVERED", "%s  ·  %.1f km" % [Wallet.format(o.reward, true), o.route_length / 1000.0],
 		COLOR)
 	_banner_time = 3.0
-	print("Delivery completed: %s, %.0f m, paid %d" % [o.cargo, o.route_length, o.reward])
+	print("Delivery completed: %s, %.0f m, paid %d, %.0f s left of %.0f" % [o.cargo, o.route_length, o.reward,
+		time_left, o.time_limit])
+
+
+## The delivery clock ran out: the mission is cancelled without pay.
+func _expire() -> void:
+	var o := active
+	_clear_active()
+	_wallet.set_stat("deliveries_failed", int(_wallet.get_stat("deliveries_failed", 0)) + 1)
+	if _echo.state == EchoManager.State.FREE:
+		_echo.ui.show_banner("TIME'S UP", "Delivery failed: %s, not delivered in time" % o.cargo.to_lower(),
+			EchoUi.BAD)
+		_banner_time = 3.0
+	else:
+		_echo.ui.toast("Time's up: delivery failed")
+	_echo.ui.beep(true)
+	print("Delivery failed: %s, time limit %.0f s ran out" % [o.cargo, o.time_limit])
+
+
+## Delivery countdown on the EchoUi race HUD (free roam only: echo races own it otherwise).
+func _update_timer(free: bool) -> void:
+	if active and free:
+		var left := maxf(active.delivery_left, 0.0)
+		var ui := _echo.ui
+		ui.show_race_hud(true)
+		ui.set_timer(format_clock(left), EchoUi.BAD if left <= time_warning else COLOR)
+		ui.set_info("DELIVERY   ·   %s   ·   %s" % [active.cargo, Wallet.format(active.reward)])
+		_timer_shown = true
+		var whole := ceili(left)
+		if left <= time_beep and whole > 0 and whole != _last_beep and not get_tree().paused:
+			_last_beep = whole
+			ui.beep()
+	elif _timer_shown:
+		_timer_shown = false
+		if free:
+			_echo.ui.show_race_hud(false)
 
 
 func _clear_active() -> void:
