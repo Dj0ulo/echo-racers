@@ -89,6 +89,34 @@ Code: `scripts/echo/` — `echo_manager.gd` (game flow, menus, recording at 30 H
 `echo_editor.gd` (top view), `echo_ui.gd` (side menu, timer, countdown, beeps), `echo_track.gd` / `echo_run.gd`
 (data + save files), `checkpoint_gate.gd`, `ghost_car.gd`, `echo_point.gd` (beacon) and `neon.gd` (glow shaders).
 
+## Economy
+
+The currency sign is a capital R with a vertical bar through it (like the dollar's S), shown as R⃒ below. The
+balance sits top right on the HUD; on every change it counts to the new value, flashes green (gain) or red (spend)
+and floats the signed amount under it. A new game starts with R⃒500 (`Wallet.start_balance`). The wallet is saved to
+`user://wallet.cfg` on every change (independent of the pause-menu Save); autodrive/debug runs use a fresh scratch
+`user://wallet_test.cfg` instead.
+
+- **Creating an echo course costs money**: R⃒250 × 1.25ⁿ rounded to R⃒10 (R⃒250, 310, 390, 490, ...), where n is the
+  number of courses ever created (persisted in the wallet, so deleting courses does not lower the price;
+  `EchoManager.course_base_cost`, `course_cost_growth`, `course_cost_step`). The price is shown on the Y menu's
+  record entry (greyed out, with a "Not enough money" line, when unaffordable) and on the editor's **Save**; it is
+  charged only when the course is saved (a discarded recording is free). Creating an echo earns nothing.
+- **Echo races pay** only when the time beats both the course's **best echo** and its **par** time. Par is a
+  theoretical minimum: the crow-flies horizontal distance between consecutive checkpoints (start, checkpoints,
+  finish) at 100 km/h (`par_speed_kmh`) plus every climb between them at 10 m/s (`par_climb_speed`), so a
+  deliberately slow first echo cannot be farmed. Reward = 20 × (par − time) + 100 × (best − time), seconds,
+  rounded (`reward_per_par_second`, `reward_per_echo_second`). Once paid, the time becomes the course's paid record
+  (saved in its `.echo` file) and "best" is min(best echo, paid record), so re-racing without saving cannot collect
+  the same margin twice. The finish banner and result menu show the par, whether it was beaten and the reward (or
+  why nothing was paid); the course and race menus show the par and the time to beat.
+
+Code: `scripts/game/wallet.gd` (`Wallet`: `balance`, `earn(amount, reason)`, `spend(amount, reason) -> bool`,
+`can_afford`, `get_stat` / `set_stat`, signal `changed(balance, delta, reason)`, `Wallet.format(amount, signed)`).
+The sign is `Wallet.SIGN`, a private-use character U+E000 followed by "R": a procedural bitmap font, added at
+startup as a fallback of the default theme font, draws U+E000 as a zero-width bar over the next letter, so it works
+in any Label/Button at any size without assets.
+
 ## Day and night
 
 Time flows from 10:00 at startup: 10 real minutes of daylight (06:00-18:00) then 10 of night (`DayNight.day_minutes`,
@@ -176,6 +204,8 @@ sets the lap length in game time (default 44; `--duration=0` with `--view`s quit
 14 s run, places checkpoints on its extremes in the editor, saves it, picks "Race the new echo"
 in the result menu, races its ghost (following its line a bit
 faster), prints the splits and result, saves the new echo, then deletes the scratch course (`user://echoes_test`).
+It also checks the course price is charged on save, prints the par and the race reward, checks the same time is not
+paid twice, and deletes the scratch wallet (`user://wallet_test.cfg`, reset at the start of every `--autodrive` run).
 `--autodrive --maptest [--shots=/abs/dir]` opens the world map through its input action, sets a destination 450 m
 ahead (shots `map.png`, then `filament.png` after closing the map), then routes to the middle of every road and
 prints route vs straight-line distances. Real gamepad buttons are ignored during it (Godot reads joypads even

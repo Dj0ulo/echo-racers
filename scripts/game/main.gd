@@ -11,6 +11,7 @@ const MAP_TEST_SCRIPT := "res://scripts/debug/map_test.gd"
 @onready var chase_camera: ChaseCamera = $ChaseCamera
 @onready var hud: Hud = $HUD
 
+var wallet: Wallet
 var echo: EchoManager
 var gps: Gps
 var world_map: WorldMap
@@ -31,11 +32,19 @@ func _ready() -> void:
 	var echo_test := "--echotest" in OS.get_cmdline_user_args()
 	if echo_test:
 		EchoTrack.directory = "user://echoes_test"  # Never touch the player's saved echoes.
+	if "--autodrive" in OS.get_cmdline_user_args():
+		# Debug runs use a fresh scratch wallet: never the player's money, and reproducible.
+		Wallet.path = "user://wallet_test.cfg"
+		DirAccess.remove_absolute(Wallet.path)
+	wallet = Wallet.new()
+	wallet.name = "Wallet"
+	add_child(wallet)
+	hud.set_wallet(wallet)
 	echo = EchoManager.new()
 	echo.name = "Echo"
 	add_child(echo)
 	var env := ($WorldEnvironment as WorldEnvironment).environment
-	echo.setup(world, car, chase_camera, hud, env)
+	echo.setup(world, car, chase_camera, hud, env, wallet)
 	gps = Gps.new()
 	gps.name = "Gps"
 	add_child(gps)

@@ -4,6 +4,8 @@ extends Node
 ## it whenever with Y to place its checkpoints in the top-view EchoEditor, then save it as an "echo" course
 ## marked by a neon EchoPoint. At a point, Y lists its echoes (best first) to race against as a ghost; beating
 ## the chosen echo lets you save your run as a new one. During any race Y offers restart / exit.
+## Economy (Wallet): saving a new course costs money (more for each course ever created); a race pays when it
+## beats both the course's best echo (or its best already-paid time) and its par time (EchoTrack.par_time).
 
 enum State { FREE, COUNTDOWN, RECORDING, RACING, FINISHED, EDITING }
 
@@ -11,6 +13,17 @@ enum State { FREE, COUNTDOWN, RECORDING, RACING, FINISHED, EDITING }
 @export var gate_radius := 9.0        ## Checkpoint half-width: how far from its centre the car may pass.
 @export var min_run_seconds := 3.0    ## Shortest recording that can be turned into an echo.
 @export var result_menu_delay := 1.6  ## Seconds between crossing the finish and the result menu.
+@export_group("Economy")
+@export var course_base_cost := 250       ## Price of the first echo course.
+@export var course_cost_growth := 1.25    ## Each course ever created multiplies the next one's price by this.
+@export var course_cost_step := 10        ## Prices are rounded to this.
+@export var par_speed_kmh := 100.0        ## Par: crow-flies speed between checkpoints (a brisk road run averages more).
+@export var par_climb_speed := 10.0       ## Par: each metre climbed between checkpoints adds 1 / this seconds.
+@export var reward_per_par_second := 20.0     ## Money per second under par...
+@export var reward_per_echo_second := 100.0   ## ...plus money per second under the best echo (or paid record).
+@export_group("")
+
+const COURSES_STAT := "echo_courses_created"
 
 var state := State.FREE
 var race_line := true             ## Gold direction line along the raced echo's path (toggled in the race menu).
@@ -49,9 +62,15 @@ var _result_timer := -1.0
 var _won := false
 var _saved := false
 var _editor: EchoEditor
+var _wallet: Wallet
+var _reward := 0
+var _reward_note := ""            ## Finish: par line + reward or why nothing was paid.
+var _last_course_cost := 0
 
 
-func setup(world: WorldGenerator, car: CarController, camera: ChaseCamera, hud: Hud, env: Environment) -> void:
+func setup(world: WorldGenerator, car: CarController, camera: ChaseCamera, hud: Hud, env: Environment,
+		wallet: Wallet) -> void:
+	_wallet = wallet
 	_world = world
 	_car = car
 	_camera = camera
@@ -172,6 +191,8 @@ func handle_reset() -> bool:
 # --- Race flow -----------------------------------------------------------------------------------
 
 func start_recording() -> void:
+	if not _check_course_affordable():
+		return
 	_close_menu()
 	_clear_race()
 	_track = null
@@ -215,6 +236,8 @@ func restart() -> void:
 	if _track:
 		race_echo(_track, _ghost_run)
 	else:
+		if not _check_course_affordable():
+			return
 		_close_menu()
 		_begin_countdown()
 
@@ -243,6 +266,7 @@ func end_recording() -> void:
 	_editor = EchoEditor.new()
 	add_child(_editor)
 	_editor.finished.connect(_on_editor_finished)
+	_editor.cost = course_cost()
 	_editor.setup(_run, _car, ui, _env, _camera, EchoTrack.Style.RINGS, gate_radius)
 
 
@@ -354,13 +378,64 @@ func _finish(t: float) -> void:
 	_won = t < _ghost_run.time
 	_saved = false
 	var d := t - _ghost_run.time
+	_pay_race(t)
 	ui.set_timer(EchoRun.format_time(t), EchoUi.GOOD if _won else EchoUi.BAD)
 	if _won:
-		ui.show_banner("ECHO BEATEN!", "%s   (%s)" % [EchoRun.format_time(t), EchoRun.format_delta(d)], EchoUi.GOOD)
+		ui.show_banner("ECHO BEATEN!", "%s   (%s)\n%s" % [EchoRun.format_time(t), EchoRun.format_delta(d), _reward_note],
+			EchoUi.GOOD)
 	else:
-		ui.show_banner("FINISH", "%s   (%s behind the echo)" % [EchoRun.format_time(t), EchoRun.format_delta(d)],
-			EchoUi.ACCENT)
+		ui.show_banner("FINISH", "%s   (%s behind the echo)\n%s" % [EchoRun.format_time(t), EchoRun.format_delta(d),
+			_reward_note], EchoUi.ACCENT)
 	_result_timer = result_menu_delay
+
+
+## Pays the finished race `t` if it beats both par and the course's reward reference (best echo or best paid
+## time), then raises the paid record so the same margin is never paid twice. Sets `_reward` / `_reward_note`.
+func _pay_race(t: float) -> void:
+	var par := par_time(_track)
+	var ref := _track.reward_reference()
+	var par_text := "Par %s %s" % [EchoRun.format_time(par), "beaten" if t < par else "not beaten"]
+	_reward = 0
+	if t >= par:
+		_reward_note = "%s: no reward." % par_text
+		return
+	if t >= ref:
+		var what := "best echo" if ref == _track.best_time() else "best paid time"
+		_reward_note = "%s, but not the %s (%s): no reward." % [par_text, what, EchoRun.format_time(ref)]
+		return
+	_reward = maxi(roundi(reward_per_par_second * (par - t) + reward_per_echo_second * (ref - t)), 0)
+	_track.paid_record = t
+	_track.save()
+	if _reward > 0:
+		_wallet.earn(_reward, "Echo race")
+	_reward_note = "%s, best beaten: reward %s" % [par_text, Wallet.format(_reward)]
+
+
+## Par time of `track` with the current tunables.
+func par_time(track: EchoTrack) -> float:
+	return track.par_time(par_speed_kmh / 3.6, par_climb_speed)
+
+
+## Price of the next new echo course: base x growth^(courses ever created), rounded to `course_cost_step`.
+func course_cost() -> int:
+	var n := int(_wallet.get_stat(COURSES_STAT, 0))
+	var raw := course_base_cost * pow(course_cost_growth, n)
+	return maxi(roundi(raw / course_cost_step) * course_cost_step, 0)
+
+
+## Toasts and returns false when the next course is unaffordable.
+func _check_course_affordable() -> bool:
+	if _wallet.can_afford(course_cost()):
+		return true
+	ui.toast("Not enough money: a new echo course costs %s (you have %s)" % [Wallet.format(course_cost()),
+		Wallet.format(_wallet.balance)])
+	return false
+
+
+func _record_item(text: String) -> Dictionary:
+	var cost := course_cost()
+	return {"text": "%s   (%s)" % [text, Wallet.format(cost)], "action": start_recording,
+		"enabled": _wallet.can_afford(cost)}
 
 
 func _clear_race() -> void:
@@ -406,7 +481,14 @@ func _on_editor_finished(track: EchoTrack) -> void:
 	_track = track
 	_saved = track != null
 	_won = false
+	_last_course_cost = course_cost()
+	if track and not _wallet.spend(_last_course_cost, "New echo course"):
+		ui.toast("Not enough money to save the course (%s)" % Wallet.format(_last_course_cost))
+		track = null
+		_track = null
+		_saved = false
 	if track:
+		_wallet.set_stat(COURSES_STAT, int(_wallet.get_stat(COURSES_STAT, 0)) + 1)
 		track.name = _next_name()
 		tracks.append(track)
 		track.save()
@@ -456,9 +538,16 @@ func open_context_menu() -> void:
 			if _nearby:
 				_open_track_menu(_nearby)
 			else:
+				var cost := course_cost()
+				var money := "Saving it as a new course costs %s (you have %s)." % [Wallet.format(cost),
+					Wallet.format(_wallet.balance)]
+				if not _wallet.can_afford(cost):
+					money = "Not enough money: a new course costs %s, you have %s." % [Wallet.format(cost),
+						Wallet.format(_wallet.balance)]
 				_open_menu("ECHO RACE", "Record a run from right here. Press Y again whenever you want to end it, " +
-					"then place its checkpoints. %d echo point%s on the map." % [tracks.size(), "" if tracks.size() == 1 else "s"], [
-					{"text": "Start a race here", "action": start_recording},
+					"then place its checkpoints. %s %d echo point%s on the map." % [money, tracks.size(),
+					"" if tracks.size() == 1 else "s"], [
+					_record_item("Start a race here"),
 					{"text": "Close", "action": _close_menu},
 				])
 		State.COUNTDOWN, State.RECORDING, State.RACING, State.FINISHED:
@@ -484,7 +573,9 @@ func _open_race_menu() -> void:
 		{"text": "Exit race mode", "action": exit_race},
 		{"text": "Resume", "action": _close_menu},
 	])
-	_open_menu(_track.name.to_upper(), "Racing the %s echo." % EchoRun.format_time(_ghost_run.time), items)
+	_open_menu(_track.name.to_upper(), "Racing the %s echo. Par %s; beat it and %s to earn money." % [
+		EchoRun.format_time(_ghost_run.time), EchoRun.format_time(par_time(_track)),
+		EchoRun.format_time(_track.reward_reference())], items)
 
 
 ## End-of-race menu. Also shown after the editor (`_ghost_run` null): race the freshly saved echo, or record
@@ -492,14 +583,16 @@ func _open_race_menu() -> void:
 func _open_result_menu() -> void:
 	if _ghost_run == null:
 		if _track:
-			_open_menu("%s SAVED" % _track.name.to_upper(), "%s · %.2f km · %d checkpoints. Its neon beacon now marks the start on the map." % [
-				EchoRun.format_time(_finish_time), _track.length / 1000.0, _track.checkpoints.size() - 2], [
+			_open_menu("%s SAVED" % _track.name.to_upper(), "%s · %.2f km · %d checkpoints · par %s. Paid %s. Its neon beacon now marks the start on the map." % [
+				EchoRun.format_time(_finish_time), _track.length / 1000.0, _track.checkpoints.size() - 2,
+				EchoRun.format_time(par_time(_track)), Wallet.format(_last_course_cost)], [
 				{"text": "Race the new echo", "action": race_echo.bind(_track, _run)},
 				{"text": "Exit race mode", "action": exit_race},
 			], exit_race)
 		else:
 			_open_menu("RUN DISCARDED", "The recording was thrown away.", [
-				{"text": "Record again from the same start", "action": restart},
+				{"text": "Record again from the same start   (%s)" % Wallet.format(course_cost()), "action": restart,
+					"enabled": _wallet.can_afford(course_cost())},
 				{"text": "Exit race mode", "action": exit_race},
 			], exit_race)
 		return
@@ -513,8 +606,8 @@ func _open_result_menu() -> void:
 		{"text": "Race the same echo again", "action": restart},
 		{"text": "Exit race mode", "action": exit_race},
 	])
-	_open_menu("FINISH  " + EchoRun.format_time(_finish_time), "%s the %s echo by %.3f s." % [
-		"You beat" if _won else "You lost to", EchoRun.format_time(_ghost_run.time), absf(d)], items)
+	_open_menu("FINISH  " + EchoRun.format_time(_finish_time), "%s the %s echo by %.3f s.\n%s" % [
+		"You beat" if _won else "You lost to", EchoRun.format_time(_ghost_run.time), absf(d), _reward_note], items)
 
 
 func _open_track_menu(t: EchoTrack) -> void:
@@ -523,12 +616,13 @@ func _open_track_menu(t: EchoTrack) -> void:
 		var r := t.runs[i]
 		items.append({"text": "#%d   %s   ·  %s" % [i + 1, EchoRun.format_time(r.time), r.date], "action": race_echo.bind(t, r)})
 	items.append_array([
-		{"text": "Record a new race from here", "action": start_recording},
+		_record_item("Record a new race from here"),
 		{"text": "Delete this echo point", "action": _confirm_delete.bind(t)},
 		{"text": "Close", "action": _close_menu},
 	])
-	_open_menu(t.name.to_upper(), "%.2f km · %d checkpoints · %s. Pick the echo to race:" % [t.length / 1000.0,
-		t.checkpoints.size() - 2, t.style_name()], items)
+	_open_menu(t.name.to_upper(), "%.2f km · %d checkpoints · %s · par %s. Beat par and %s to earn money. Pick the echo to race:" % [
+		t.length / 1000.0, t.checkpoints.size() - 2, t.style_name(), EchoRun.format_time(par_time(t)),
+		EchoRun.format_time(t.reward_reference())], items)
 
 
 func _confirm_delete(t: EchoTrack) -> void:

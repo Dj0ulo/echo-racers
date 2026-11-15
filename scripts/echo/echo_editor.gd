@@ -23,6 +23,7 @@ var run: EchoRun
 var style := EchoTrack.Style.RINGS
 var checkpoints: Array[int] = []  ## Sample indices of the intermediate checkpoints, ascending.
 var gate_radius := 9.0
+var cost := 0                     ## Price of saving the course (shown on Save, charged by EchoManager).
 
 var _ui: EchoUi
 var _env: Environment
@@ -420,7 +421,7 @@ func _menu_items() -> Array[Dictionary]:
 		{"text": "Clear checkpoints", "action": clear_checkpoints},
 		{"text": "Set the finish here", "action": set_finish_here},
 		{"text": "Style: %s" % ("neon rings" if style == EchoTrack.Style.RINGS else "light gates"), "action": toggle_style},
-		{"text": "Save", "action": save},
+		{"text": "Save   (%s)" % Wallet.format(-cost) if cost > 0 else "Save", "action": save},
 		{"text": "Discard", "action": _confirm_discard},
 	]
 

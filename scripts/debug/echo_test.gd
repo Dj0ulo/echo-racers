@@ -5,6 +5,9 @@ extends Node
 ## picks "Race the new echo" in the result menu back in the car view (shot `echo_saved_menu.png`), races the echo as a ghost by following its line 6 % faster (the autodrive's scripted drift tests are switched
 ## off for that leg; shot `echo_race.png`), prints every split and the result, saves the new echo if
 ## it won, then deletes the scratch course (stored in user://echoes_test, never the player's echoes).
+## Economy: checks the course price is charged on save (scratch wallet user://wallet_test.cfg, reset by main.gd
+## for every --autodrive run, deleted at the end), prints the par time and the race reward, and that a second
+## payout of the same time is refused.
 
 const RECORD_SECONDS := 14.0
 
@@ -15,6 +18,8 @@ var _shots := ""
 var _seen_cp := 1
 var _follow: EchoRun  ## Line driven during the race leg.
 var _follow_i := 0
+var _balance0 := 0
+var _cost := 0
 
 
 func _ready() -> void:
@@ -32,6 +37,10 @@ func _process(delta: float) -> void:
 	match _phase:
 		0:  # Through the real input path: Tab opens the menu, Enter picks "Start a race here".
 			print("Echo test: start recording at ", _echo._car.global_position.round())
+			_balance0 = _echo._wallet.balance
+			_cost = _echo.course_cost()
+			print("Echo test: wallet %s (%s), course price %s" % [Wallet.format(_balance0), Wallet.path,
+				Wallet.format(_cost)])
 			_press(&"echo_menu")
 			_next(0.2)
 		1:
@@ -66,6 +75,9 @@ func _process(delta: float) -> void:
 			var t: EchoTrack = _echo.tracks.back()
 			print("Echo test: saved '%s', %d checkpoints, %.0f m, echo %s" % [t.name, t.checkpoints.size(), t.length,
 				EchoRun.format_time(t.best_time())])
+			print("Echo test: charged %s, ok = %s, next price %s, par %s" % [Wallet.format(_balance0 - _echo._wallet.balance),
+				_balance0 - _echo._wallet.balance == _cost and _echo.course_cost() > _cost, Wallet.format(_echo.course_cost()),
+				EchoRun.format_time(_echo.par_time(t))])
 			print("Echo test: result menu in car view = %s (paused %s)" % [_echo.ui.is_menu_open()
 				and _echo._editor == null and get_viewport().get_camera_3d() == _echo._camera, get_tree().paused])
 			_shot("echo_saved_menu.png")
@@ -92,6 +104,10 @@ func _process(delta: float) -> void:
 			if _echo.state == EchoManager.State.FINISHED:
 				print("Echo test: finished %s vs %s, won=%s" % [EchoRun.format_time(_echo._finish_time),
 					EchoRun.format_time(_echo._ghost_run.time), _echo._won])
+				print("Echo test: reward %s (%s)" % [Wallet.format(_echo._reward), _echo._reward_note])
+				var before := _echo._wallet.balance
+				_echo._pay_race(_echo._finish_time)  # Same time again: must not be paid twice.
+				print("Echo test: repeat payout refused = %s" % [_echo._reward == 0 and _echo._wallet.balance == before])
 				_next(2.5)
 			elif _echo._time > RECORD_SECONDS * 2.5:
 				print("Echo test: FAILED, no finish after %.0f s (next checkpoint %d)" % [_echo._time, _echo._next_cp])
@@ -110,6 +126,7 @@ func _process(delta: float) -> void:
 		11:
 			for t in EchoTrack.load_all():
 				t.erase()
+			DirAccess.remove_absolute(Wallet.path)
 			print("Echo test done")
 			get_tree().quit()
 

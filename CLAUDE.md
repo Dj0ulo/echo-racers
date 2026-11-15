@@ -7,7 +7,8 @@ tabs, typed GDScript, `##` doc comment at the top of each script.
 
 ## Map (one line per script)
 - `scripts/game/main.gd` entry point: spawns the car on the road (or from user://savegame.cfg), pause, save, resets.
-- `scripts/game/hud.gd` (Hud) speedometer, boost gauge, FPS, controls hint.
+- `scripts/game/hud.gd` (Hud) speedometer, boost gauge, wallet balance (animated), FPS, controls hint.
+- `scripts/game/wallet.gd` (Wallet) money: earn/spend/can_afford, `changed` signal, persisted stats, `Wallet.format()` + R-bar glyph.
 - `scripts/game/pause_menu.gd` (PauseMenu) centered Start/Esc menu: Resume, Save, Quit (EchoUi look).
 - `scripts/game/minimap.gd` (Minimap) heading-up circular minimap, terrain+roads rendered once, shader rotates.
 - `scripts/game/world_map.gd` (WorldMap) Select/M full-screen top-down map: pan, zoom, set the GPS destination.
@@ -36,7 +37,7 @@ tabs, typed GDScript, `##` doc comment at the top of each script.
 - `scripts/world/collider_batch.gd` (ColliderBatch) thousands of static colliders straight into PhysicsServer.
 - `scripts/world/palette.gd` (Palette) shared colours and materials.
 - `scripts/world/day_night.gd` (DayNight) 10 min day / 10 min night: sun/moon light, sky shader, fog, headlights.
-- `scripts/echo/echo_manager.gd` (EchoManager) echo race flow: Y menu, record, race ghosts, checkpoints, saves.
+- `scripts/echo/echo_manager.gd` (EchoManager) echo race flow: Y menu, record, race ghosts, checkpoints, saves; course price, par, rewards.
 - `scripts/echo/echo_editor.gd` (EchoEditor) top-view run review: scrub, place checkpoints, style, save/discard.
 - `scripts/echo/echo_ui.gd` (EchoUi) side menu, race timer/splits, countdown, prompts, beeps.
 - `scripts/echo/echo_track.gd` (EchoTrack) saved course + its echoes (user://echoes); `echo_run.gd` (EchoRun) one recording.

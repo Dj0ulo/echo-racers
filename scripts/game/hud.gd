@@ -1,12 +1,15 @@
 class_name Hud
 extends CanvasLayer
-## Minimal driving HUD: speedometer with a boost gauge, rotating minimap, FPS and a fading controls hint.
+## Minimal driving HUD: speedometer with a boost gauge, rotating minimap, FPS, the wallet balance (counts
+## to the new value, flashes green / red and floats the +/- amount when it changes) and a fading controls hint.
 
 const BOOST_FULL := Color(0.3, 0.82, 1.0)
 const BOOST_ACTIVE := Color(1.0, 0.55, 0.12)
 const BOOST_COOLDOWN := Color(0.5, 0.55, 0.6)
 const BOOST_REFILL := Color(0.22, 0.5, 0.85)
 const BOOST_BAR_SIZE := Vector2(260, 14)
+const MONEY_GAIN := Color(0.35, 1.0, 0.55)
+const MONEY_LOSS := Color(1.0, 0.42, 0.38)
 
 var car: CarController
 
@@ -22,6 +25,13 @@ var _bar_bg := StyleBoxFlat.new()
 var _bar_fill := StyleBoxFlat.new()
 var _hint_time := 10.0
 var _minimap: Minimap
+var _wallet: Wallet
+var _money_label: Label
+var _money_delta_label: Label
+var _money_shown := 0.0    ## Displayed balance, counting towards the real one.
+var _money_flash := 0.0
+var _money_color := Color.WHITE
+var _money_delta_time := 0.0
 
 
 func _ready() -> void:
@@ -44,6 +54,18 @@ func _ready() -> void:
 	_fps_label.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	_fps_label.modulate.a = 0.7
 
+	_money_label = _make_label(30)
+	_money_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT, Control.PRESET_MODE_KEEP_SIZE, 16)
+	_money_label.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	_money_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_money_label.offset_top = 40.0
+	_money_label.visible = false
+	_money_delta_label = _make_label(22)
+	_money_delta_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT, Control.PRESET_MODE_KEEP_SIZE, 16)
+	_money_delta_label.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	_money_delta_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_money_delta_label.visible = false
+
 	_hint_label = _make_label(18)
 	_hint_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT, Control.PRESET_MODE_KEEP_SIZE, 24)
 	_hint_label.text = "W/S  throttle / brake-reverse\nA/D  steer\nSpace  handbrake (drift)\nShift  boost\nR  reset car\nTab  echo race menu\nM  map / GPS destination\nEsc  pause menu (save)"
@@ -55,6 +77,7 @@ func _process(delta: float) -> void:
 		_speed_label.text = "%d km/h" % roundi(car.get_speed_kmh())
 		_update_boost_gauge(delta)
 	_fps_label.text = "%d FPS" % Engine.get_frames_per_second()
+	_update_money(delta)
 	if _hint_time > 0.0 and not get_tree().paused:
 		_hint_time -= delta
 		_hint_label.modulate.a = clampf(_hint_time, 0.0, 1.0)
@@ -130,6 +153,41 @@ func _draw_boost_bar() -> void:
 		_bar_fill.bg_color = col
 		_bar_fill.draw(_boost_bar.get_canvas_item(), Rect2(inner.position, Vector2(w, inner.size.y)))
 	_boost_label.modulate = Color(col.lightened(0.3), 0.9)
+
+
+## Shows `wallet`'s balance and animates its changes.
+func set_wallet(wallet: Wallet) -> void:
+	_wallet = wallet
+	_money_shown = wallet.balance
+	_money_label.visible = true
+	wallet.changed.connect(_on_money_changed)
+
+
+func _on_money_changed(_balance: int, delta: int, _reason: String) -> void:
+	_money_color = MONEY_GAIN if delta > 0 else MONEY_LOSS
+	_money_flash = 1.0
+	_money_delta_label.text = Wallet.format(delta, true)
+	_money_delta_label.label_settings.font_color = _money_color
+	_money_delta_label.visible = true
+	_money_delta_time = 2.2
+
+
+func _update_money(delta: float) -> void:
+	if _wallet == null:
+		return
+	var target := float(_wallet.balance)
+	_money_shown = move_toward(_money_shown, target, maxf(absf(target - _money_shown) * 4.0, 60.0) * delta)
+	_money_label.text = Wallet.format(roundi(_money_shown))
+	_money_flash = maxf(_money_flash - delta * 0.8, 0.0)
+	_money_label.label_settings.font_color = Color.WHITE.lerp(_money_color, minf(_money_flash * 1.5, 1.0))
+	_money_label.scale = Vector2.ONE * (1.0 + 0.12 * _money_flash * _money_flash)
+	_money_label.pivot_offset = _money_label.size * Vector2(1.0, 0.5)
+	if _money_delta_time > 0.0:
+		_money_delta_time -= delta
+		var k := clampf(_money_delta_time / 2.2, 0.0, 1.0)  # 1 -> 0
+		_money_delta_label.offset_top = 82.0 + (1.0 - k) * 18.0
+		_money_delta_label.modulate.a = clampf(k * 3.0, 0.0, 1.0)
+		_money_delta_label.visible = _money_delta_time > 0.0
 
 
 func get_minimap() -> Minimap:

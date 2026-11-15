@@ -17,10 +17,27 @@ var checkpoints := PackedVector3Array()    ## Car-centre positions; [0] = start,
 var directions := PackedVector3Array()     ## Horizontal travel direction through each checkpoint.
 var length := 0.0                          ## Metres, along the original run.
 var runs: Array[EchoRun] = []              ## Sorted best (fastest) first.
+var paid_record := INF                     ## Fastest race time already paid out (anti-farming), INF = none.
 
 
 func best_time() -> float:
 	return runs[0].time if not runs.is_empty() else INF
+
+
+## Reference a race must beat to be paid: the best echo, or the fastest time already paid if lower.
+func reward_reference() -> float:
+	return minf(best_time(), paid_record)
+
+
+## Theoretical minimum duration ("par"): crow-flies horizontal distance between consecutive checkpoints
+## (start, checkpoints, finish) at `par_speed` m/s, plus every climb between them at `climb_speed` m/s.
+func par_time(par_speed: float, climb_speed: float) -> float:
+	var t := 0.0
+	for i in range(1, checkpoints.size()):
+		var a := checkpoints[i - 1]
+		var b := checkpoints[i]
+		t += Vector2(b.x - a.x, b.z - a.z).length() / par_speed + maxf(b.y - a.y, 0.0) / climb_speed
+	return t
 
 
 ## Adds a run, keeps the list sorted and returns its 1-based rank.
@@ -55,7 +72,8 @@ func save() -> Error:
 	for r in runs:
 		run_dicts.append(r.to_dict())
 	f.store_var({"version": VERSION, "id": id, "name": name, "style": style, "start": start,
-		"checkpoints": checkpoints, "directions": directions, "length": length, "runs": run_dicts})
+		"checkpoints": checkpoints, "directions": directions, "length": length, "runs": run_dicts,
+		"paid_record": paid_record})
 	return OK
 
 
@@ -150,6 +168,7 @@ static func _from_dict(d: Dictionary) -> EchoTrack:
 	t.checkpoints = d.get("checkpoints", PackedVector3Array())
 	t.directions = d.get("directions", PackedVector3Array())
 	t.length = d.get("length", 0.0)
+	t.paid_record = d.get("paid_record", INF)
 	for rd: Variant in d.get("runs", []):
 		if rd is Dictionary:
 			t.runs.append(EchoRun.from_dict(rd))
