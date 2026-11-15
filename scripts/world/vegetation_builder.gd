@@ -17,7 +17,10 @@ const TREE_MIN_SPACING := 5.0    ## Minimum distance between two drivable-area t
 const TREE_ROAD_CLEAR := 9.0     ## No trees closer than this to a road edge...
 const TREE_ROAD_SPARSE := 22.0   ## ...and thinner forest up to this distance, so roadsides stay open.
 const TRUNK_RADIUS := 0.24       ## Collider: the trunk only, branches and foliage are not solid.
-const TRUNK_HEIGHT := 8.0
+## Unscaled height of the trunk below the foliage, per tree kind (the collider stops there: the car can drive or
+## fly through the canopy).
+const TRUNK_HEIGHT := {&"pine": 1.2, &"broad": 2.25, &"broad_light": 2.25, &"autumn": 2.25}
+const TRUNK_STEP := 0.25         ## Trunk collider heights are rounded to this, so trees share a few shapes.
 
 
 ## `clear_zones` holds Vector3(x, z, radius) circles (buildings, fields) where nothing should grow.
@@ -69,9 +72,7 @@ static func build(parent: Node3D, terrain: TerrainData, clear_zones: Array[Vecto
 
 static func _scatter_trees(terrain: TerrainData, clear_zones: Array[Vector3],
 		rng: RandomNumberGenerator, buckets: Dictionary, colliders: ColliderBatch) -> void:
-	var trunk := CylinderShape3D.new()
-	trunk.radius = TRUNK_RADIUS
-	trunk.height = TRUNK_HEIGHT
+	var trunks := {}  # Rounded height (in TRUNK_STEP units) -> CylinderShape3D.
 	var limit := TerrainData.HALF_SIZE - 3.0
 	# Spatial hash (cells of TREE_MIN_SPACING) of the trees placed so far, for the spacing test.
 	var placed := {}
@@ -104,8 +105,16 @@ static func _scatter_trees(terrain: TerrainData, clear_zones: Array[Vector3],
 			placed[cell] = []
 		placed[cell].append(Vector2(x, z))
 		var kind := _pick_tree(rng, forest, y)
-		_add(buckets, kind, x, z, TREE_CHUNK, _random_xform(rng, x, y - 0.1, z, 0.75, 1.3, TREE_HEIGHT_SCALE))
-		colliders.add(trunk, Transform3D(Basis(), Vector3(x, y + TRUNK_HEIGHT * 0.5, z)))
+		var xform := _random_xform(rng, x, y - 0.1, z, 0.75, 1.3, TREE_HEIGHT_SCALE)
+		_add(buckets, kind, x, z, TREE_CHUNK, xform)
+		var steps := maxi(floori(TRUNK_HEIGHT[kind] * xform.basis.y.length() / TRUNK_STEP), 1)
+		if not trunks.has(steps):
+			var cyl := CylinderShape3D.new()
+			cyl.radius = TRUNK_RADIUS
+			cyl.height = steps * TRUNK_STEP
+			trunks[steps] = cyl
+		var trunk_h := steps * TRUNK_STEP
+		colliders.add(trunks[steps], Transform3D(Basis(), Vector3(x, y - 0.1 + trunk_h * 0.5, z)))
 		count += 1
 	print("  trees: %d" % count)
 
