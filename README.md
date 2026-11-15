@@ -76,7 +76,7 @@ recorded. Press Y whenever you want and **End the race & place checkpoints**: a 
 Drive into a beacon and press Y to see its echoes, best first, and pick the one to race: 3-2-1-GO, then pass every
 checkpoint in order (the next one pulses; it is also the pink marker on the minimap) against a hologram ghost of the
 echo (also a cyan arrow on the minimap). The HUD shows the time and your split against the echo at each checkpoint.
-The gold filament and the minimap route follow the raced echo's path from the car to the finish (kept on the
+The filament and the minimap route turn blue and follow the raced echo's path from the car to the finish (kept on the
 current leg between checkpoints, `Gps.race_step` / `race_lost`). During a race Y offers restart from the start,
 **Direction line: On/Off** (toggles that line, kept for the session) or exit; reset puts you back on the last checkpoint passed. Beat the echo and you can save your run
 as a new echo of that course (older ones are kept), then race that new echo straight away. Every race (and restart)
@@ -119,8 +119,8 @@ owns the sky shader.
 - `scripts/world/` — `world_generator.gd` defines the road network and orchestrates `terrain_data.gd` (height
   field, every road carved in, computed on the WorkerThreadPool), `road_path.gd` (spline roads, open or looped,
   with a configurable cross-section: lanes, lane width, median) and the `*_builder.gd` mesh/collider builders
-  (terrain is split into frustum-culled chunks; trees keep ≥5 m apart and thin out near roads, only their trunks
-  are solid, and they switch to cheap stand-ins past ~420 m; thousands of static
+  (terrain is split into frustum-culled chunks; trees keep ≥5 m apart and thin out near roads, only their trunks up to the
+  foliage are solid, and they switch to cheap stand-ins past ~420 m; thousands of static
   colliders go through `collider_batch.gd` straight to the PhysicsServer). `palette.gd` holds the shared colours.
 - World layout (~4.6 km across, ±2304 m): the original winding country loop sits in the middle; a 6.5 km 2×2-lane
   highway with a concrete median barrier, guard rails, 1 km straights and ~520 m radius bends loops around it

@@ -55,6 +55,7 @@ var echo_target_active := false          ## ...shown while this is set.
 var destination := Vector3.ZERO          ## GPS destination (gold pin, pinned to the rim when far)...
 var destination_active := false          ## ...shown while this is set.
 var route := PackedVector3Array()        ## GPS route drawn as a gold line (empty = none).
+var route_color := Gps.COLOR             ## Gold for the GPS, blue for an echo race's direction line.
 var show_markers := true                 ## Echo points and the GPS pin (hidden during echo races).
 var ghost: Node3D                        ## Echo ghost raced against, drawn as a neon arrow (null = none).
 
@@ -359,14 +360,14 @@ func _draw_route(c: Vector2, r: float, pos: Vector2, axes: Array[Vector2]) -> vo
 		if s.length() < limit:
 			run.append(c + s)
 		elif run.size() >= 2:
-			_overlay.draw_polyline(run, Color(0.1, 0.07, 0.0, 0.8), 6.0, true)
-			_overlay.draw_polyline(run, Gps.COLOR, 3.2, true)
+			_overlay.draw_polyline(run, Color(route_color.darkened(0.9), 0.8), 6.0, true)
+			_overlay.draw_polyline(run, route_color, 3.2, true)
 			run.clear()
 		else:
 			run.clear()
 	if run.size() >= 2:
-		_overlay.draw_polyline(run, Color(0.1, 0.07, 0.0, 0.8), 6.0, true)
-		_overlay.draw_polyline(run, Gps.COLOR, 3.2, true)
+		_overlay.draw_polyline(run, Color(route_color.darkened(0.9), 0.8), 6.0, true)
+		_overlay.draw_polyline(run, route_color, 3.2, true)
 
 
 ## Gold destination pin; shrunk and pinned to the rim when off the map.

@@ -11,6 +11,7 @@ extends Node3D
 ## follow the raced echo's path instead, from the car to the finish.
 
 const COLOR := Color(1.0, 0.72, 0.22)
+const RACE_COLOR := Color(0.22, 0.5, 1.0)  ## Echo-race direction line (filament and minimap route).
 
 const _FILAMENT_CODE := """
 shader_type spatial;
@@ -22,7 +23,7 @@ void fragment() {
 	float core = smoothstep(0.3, 0.7, across);
 	float halo = pow(across, 1.5);
 	float pulse = 0.75 + 0.25 * pow(0.5 + 0.5 * sin(UV.x * 0.22 - TIME * 8.0), 6.0);
-	ALBEDO = mix(color.rgb * energy, vec3(1.0, 0.93, 0.6) * energy, smoothstep(0.8, 0.97, across)) * pulse;
+	ALBEDO = mix(color.rgb * energy, mix(color.rgb, vec3(1.0), 0.6) * energy, smoothstep(0.8, 0.97, across)) * pulse;
 	ALPHA = clamp(core + halo * 0.6, 0.0, 1.0) * COLOR.a;
 }
 """
@@ -55,6 +56,7 @@ var _route_dist := PackedFloat32Array()
 var _reroute := 0.0
 var _beacon: Node3D
 var _filament: MeshInstance3D
+var _filament_mat: ShaderMaterial
 var _mesh := ArrayMesh.new()
 var _near_i := 0
 var _old_route := PackedVector3Array()     ## Route before the last reroute, faded out over `filament_morph`.
@@ -83,6 +85,7 @@ func setup(world: WorldGenerator, car: CarController, minimap: Minimap, echo: Ec
 	mat.shader = shader
 	mat.set_shader_parameter(&"color", COLOR)
 	_filament.material_override = mat
+	_filament_mat = mat
 	add_child(_filament)
 	_beacon = _build_beacon()
 	_beacon.visible = false
@@ -215,6 +218,9 @@ func _process(delta: float) -> void:
 ## Direction line of an echo race: the raced echo's path from GO to the finish (null run = back to the GPS).
 func _set_race_run(run: EchoRun) -> void:
 	_race_run = run
+	var col := RACE_COLOR if run != null else COLOR
+	_filament_mat.set_shader_parameter(&"color", col)
+	_minimap.route_color = col
 	_race_route = PackedVector3Array()
 	_race_dist = PackedFloat32Array()
 	_race_cp = PackedInt32Array()
