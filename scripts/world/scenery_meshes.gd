@@ -1,3 +1,4 @@
+@tool
 class_name SceneryMeshes
 extends RefCounted
 ## Procedural low-poly meshes for vegetation and props. Origins sit at ground level.

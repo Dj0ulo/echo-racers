@@ -1,3 +1,4 @@
+@tool
 class_name WorldGenerator
 extends Node3D
 ## Generates the countryside at startup: terrain, roads, vegetation and props.
@@ -76,6 +77,15 @@ const RAMP_LANE_HALF := 2.0       ## Edge lines at +-this from a ramp's centreli
 @export var highway_median := 3.0
 @export var highway_shoulder := 2.5
 @export var rotor_speed := 0.9  ## Wind turbine rotor speed, rad/s.
+## Editor only: builds the world in the editor's 3D view, so hand-made nodes can be placed against it. The
+## generated nodes have no owner: they are not saved in the scene and are rebuilt at every run anyway.
+@export var editor_preview := false:
+	set(value):
+		editor_preview = value
+		if Engine.is_editor_hint() and is_inside_tree():
+			_refresh_editor_preview()
+## Rebuilds the editor preview, e.g. after changing `world_seed`.
+@export_tool_button("Regenerate preview", "Reload") var regenerate_preview := _refresh_editor_preview
 
 var terrain: TerrainData
 var road: RoadPath            ## The country loop (spawn road, used by the autodrive).
@@ -90,7 +100,20 @@ var _rotors: Array[Node3D] = []
 
 
 func _ready() -> void:
-	generate()
+	if not Engine.is_editor_hint() or editor_preview:
+		generate()
+
+
+## Editor: drops the generated nodes (hand-made children, which are owned by the scene, stay) and builds
+## them again if the preview is on.
+func _refresh_editor_preview() -> void:
+	for child in get_children():
+		if child.owner == null:
+			remove_child(child)
+			child.queue_free()
+	_rotors.clear()
+	if editor_preview:
+		generate()
 
 
 func generate() -> void:

@@ -1,3 +1,4 @@
+@tool
 class_name Palette
 extends RefCounted
 ## Shared colour palette and materials so every procedural object reads as one cohesive style.

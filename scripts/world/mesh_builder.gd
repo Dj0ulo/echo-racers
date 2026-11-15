@@ -1,3 +1,4 @@
+@tool
 class_name MeshBuilder
 extends RefCounted
 ## Accumulates flat-shaded, vertex-coloured triangles and turns them into an ArrayMesh.

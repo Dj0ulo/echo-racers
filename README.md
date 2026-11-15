@@ -17,6 +17,14 @@ On hybrid-GPU laptops, force the NVIDIA GPU with:
 __NV_PRIME_RENDER_OFFLOAD=1 __VK_LAYER_NV_optimus=NVIDIA_only __GLX_VENDOR_LIBRARY_NAME=nvidia $GODOT --path .
 ```
 
+### Editing in the Godot editor
+
+The world is generated when the game starts, so `scenes/main.tscn` looks empty in the editor. Select the
+`World` node and tick **Editor Preview** in the Inspector to build it in the 3D view (takes a few seconds;
+**Regenerate preview** rebuilds it, e.g. after changing `World Seed`). The generated nodes are not shown in
+the Scene panel nor saved; generation is deterministic, so nodes you add to the scene (e.g. as children of
+`World`) stay exactly where you put them relative to the roads and terrain.
+
 ## Controls
 
 | Action | Keyboard | Gamepad |

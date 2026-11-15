@@ -1,3 +1,4 @@
+@tool
 class_name RoadBuilder
 extends RefCounted
 ## Builds the asphalt ribbon (markings drawn by shader), its bevelled edges and its collider.

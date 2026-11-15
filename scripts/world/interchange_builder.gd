@@ -1,3 +1,4 @@
+@tool
 class_name InterchangeBuilder
 extends RefCounted
 ## Concrete structures of the diamond interchanges (see WorldGenerator): the bridge carrying each link road

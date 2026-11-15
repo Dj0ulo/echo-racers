@@ -1,3 +1,4 @@
+@tool
 class_name VegetationBuilder
 extends RefCounted
 ## Scatters trees, rocks, grass and flowers using chunked MultiMeshInstance3D nodes:

@@ -1,3 +1,4 @@
+@tool
 class_name RoadPath
 extends RefCounted
 ## A road: a Catmull-Rom spline through control points, resampled at even spacing. Closed loops and

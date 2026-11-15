@@ -1,3 +1,4 @@
+@tool
 class_name TerrainData
 extends RefCounted
 ## Height field of the playable area plus the analytic height function used for distant scenery.

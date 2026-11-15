@@ -1,3 +1,4 @@
+@tool
 class_name ColliderBatch
 extends RefCounted
 ## Thousands of static colliders (tree trunks, rocks, guard rails) added straight to the PhysicsServer,

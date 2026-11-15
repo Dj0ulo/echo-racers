@@ -1,3 +1,4 @@
+@tool
 class_name PropsBuilder
 extends RefCounted
 ## Roadside objects and landmarks: marker posts, fences, highway guard rails and median barrier,

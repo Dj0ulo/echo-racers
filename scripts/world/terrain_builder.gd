@@ -1,3 +1,4 @@
+@tool
 class_name TerrainBuilder
 extends RefCounted
 ## Builds the flat-shaded terrain meshes (playable area + distant mountains) and the terrain collider.
