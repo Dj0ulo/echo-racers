@@ -71,6 +71,7 @@ Use `tools/gd` (usage in its header; the `playtest` skill, `.claude/skills/playt
 - Never let Godot output flood the context: pipe through `grep -E ... | tail -40` or pass `--quiet` to autodrive.
 - One feature per subagent/session; keep tunables as `@export` vars and update `README.md` when behaviour or flags change.
 - Do not commit scratch files (`override.cfg`, `scripts/debug/*_tmp.gd`); use `/tmp` for outputs.
+- Commit when done with a task (one commit per feature/fix, after the checks pass); do not wait to be asked.
 - Several independent bullets/features in one request: do not implement them all in one long main-session context.
   Dispatch one subagent per bullet (sequentially in the same tree, or in worktrees if parallel and the files do not
   overlap); the main session only briefs, reviews and commits. Suggest `/clear` between unrelated follow-ups.
