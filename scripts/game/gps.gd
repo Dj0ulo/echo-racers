@@ -5,8 +5,8 @@ extends Node3D
 ## the fields to the road network (RoadGraph) where that pays off, follows it, and leaves it again across
 ## country when the destination is off-road, or skips the roads entirely when going straight is shorter
 ## (off-road metres cost `offroad_cost`). It is drawn on the minimap and as a glowing filament that starts
-## 15 m above the car and flies loosely above the route (smoothed, cutting the bends) toward the
-## destination. The filament and minimap route are hidden outside free roam (echo races, recording, editor).
+## 20 m above the car and flies loosely above the route (smoothed, cutting the bends) toward the
+## destination; after a reroute it glides onto the new route over `filament_morph` seconds. The filament and minimap route are hidden outside free roam (echo races, recording, editor).
 
 const COLOR := Color(1.0, 0.72, 0.22)
 
@@ -25,12 +25,13 @@ void fragment() {
 }
 """
 
-@export var filament_lift := 15.0      ## Height above the ground (m), from its very start above the car.
+@export var filament_lift := 20.0      ## Height above the ground (m), from its very start above the car.
 @export var filament_rise := 35.0      ## Metres over which it merges sideways from the car onto the route.
-@export var filament_width := 1.0      ## Half-width of its glow (m); the bright core is a fraction of it.
+@export var filament_width := 0.7      ## Half-width of its glow (m); the bright core is a fraction of it.
 @export var filament_length := 300.0   ## Metres of route drawn ahead of the car.
 @export var filament_smooth := 12      ## Half-window (in 2 m samples) of the smoothing that cuts the road's bends.
 @export var filament_wave := 0.35      ## Amplitude of its slow vertical wave (m).
+@export var filament_morph := 0.7      ## Seconds over which it glides from the old route onto a rerouted one.
 @export var offroad_cost := 1.6        ## An off-road metre costs this many road metres when choosing the route.
 @export var arrive_radius := 28.0      ## Destination reached within this horizontal distance (m).
 @export var reroute_interval := 0.8    ## Seconds between route updates while driving.
@@ -52,6 +53,10 @@ var _beacon: Node3D
 var _filament: MeshInstance3D
 var _mesh := ArrayMesh.new()
 var _near_i := 0
+var _old_route := PackedVector3Array()     ## Route before the last reroute, faded out over `filament_morph`.
+var _old_dist := PackedFloat32Array()
+var _old_near := 0
+var _morph := 1.0                          ## 0 -> 1 blend from `_old_route` to `route`.
 
 
 func setup(world: WorldGenerator, car: CarController, minimap: Minimap, echo: EchoManager) -> void:
@@ -94,6 +99,7 @@ func clear_destination() -> void:
 	has_destination = false
 	route = PackedVector3Array()
 	route_length = 0.0
+	_morph = 1.0
 	_beacon.visible = false
 	_filament.visible = false
 	_minimap.destination_active = false
@@ -128,6 +134,11 @@ func reroute() -> void:
 			best = total
 			bi = join_i
 			bj = k
+	if route.size() >= 2:
+		_old_route = route
+		_old_dist = _route_dist
+		_old_near = _near_i
+		_morph = 0.0
 	route = PackedVector3Array([car_pos])
 	if bi < 0:
 		_append_offroad(destination)
@@ -175,6 +186,7 @@ func _process(delta: float) -> void:
 	_beacon.visible = free
 	_minimap.route = route if free else PackedVector3Array()
 	_filament.visible = free and route.size() >= 2
+	_morph = minf(_morph + delta / maxf(filament_morph, 0.001), 1.0)
 	if _filament.visible:
 		_build_filament()
 
@@ -196,35 +208,19 @@ func _smooth(pts: PackedVector3Array) -> PackedVector3Array:
 func _build_filament() -> void:
 	_mesh.clear_surfaces()
 	var car_pos := _car.global_position
-	# Closest route point to the car, searched in a window ahead of the previous one.
-	var best_d := INF
-	var lo := maxi(_near_i - 4, 0)
-	var hi := mini(_near_i + 60, route.size() - 1)
-	for i in range(lo, hi + 1):
-		var d := route[i].distance_squared_to(car_pos)
-		if d < best_d:
-			best_d = d
-			_near_i = i
-	# Ground line: the car itself, then the route from just past the nearest point, every 2 m.
-	var ground := PackedVector3Array([car_pos])
-	var s := _route_dist[_near_i] + 3.0
-	var s1 := minf(s + filament_length, route_length)
-	var i := _near_i
-	while s < s1:
-		while i < route.size() - 2 and _route_dist[i + 1] < s:
-			i += 1
-		var seg := maxf(_route_dist[i + 1] - _route_dist[i], 0.001)
-		ground.append(route[i].lerp(route[i + 1], clampf((s - _route_dist[i]) / seg, 0.0, 1.0)))
-		s += 2.0
-	ground.append(route[route.size() - 1] if s1 >= route_length - 0.5 else _sample(s1))
+	_near_i = _nearest(route, _near_i, car_pos)
+	var s1 := minf(_route_dist[_near_i] + 3.0 + filament_length, route_length)
+	var ground := _ground_line(route, _route_dist, _near_i, car_pos)
 	var n := ground.size()
 	if n < 3:
 		return
-	# Merge from the car into the route (other lane, off to the side) over `filament_rise` metres.
-	var offset := car_pos - ground[1]
-	offset.y = 0.0
-	for k in range(1, n):
-		ground[k] += offset * (1.0 - smoothstep(0.0, filament_rise, 2.0 * k))
+	# Right after a reroute, glide from the line of the previous route onto the new one.
+	if _morph < 1.0 and _old_route.size() >= 2:
+		_old_near = _nearest(_old_route, _old_near, car_pos)
+		var old := _ground_line(_old_route, _old_dist, _old_near, car_pos)
+		var w := smoothstep(0.0, 1.0, _morph)
+		for k in range(1, n):
+			ground[k] = old[mini(k, old.size() - 1)].lerp(ground[k], w)
 	# Smooth (window shrinking at both ends so it still starts at the car and ends on the route), then lift.
 	var t := Time.get_ticks_msec() * 0.001
 	var centre := PackedVector3Array()
@@ -277,10 +273,45 @@ func _build_filament() -> void:
 	_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 
 
-func _sample(s: float) -> Vector3:
-	var i := clampi(_route_dist.bsearch(s) - 1, 0, route.size() - 2)
-	var seg := maxf(_route_dist[i + 1] - _route_dist[i], 0.001)
-	return route[i].lerp(route[i + 1], clampf((s - _route_dist[i]) / seg, 0.0, 1.0))
+## Closest point of `rt` to `pos`, searched in a window ahead of the previous one (`near`).
+func _nearest(rt: PackedVector3Array, near: int, pos: Vector3) -> int:
+	var best_d := INF
+	var best := near
+	for i in range(maxi(near - 4, 0), mini(near + 60, rt.size() - 1) + 1):
+		var d := rt[i].distance_squared_to(pos)
+		if d < best_d:
+			best_d = d
+			best = i
+	return best
+
+
+## Ground line under the filament: the car itself, then `rt` from just past point `near`, every 2 m, merged
+## sideways from the car onto the route (other lane, off to the side) over `filament_rise` metres.
+func _ground_line(rt: PackedVector3Array, dist: PackedFloat32Array, near: int, car_pos: Vector3) -> PackedVector3Array:
+	var length := dist[dist.size() - 1]
+	var ground := PackedVector3Array([car_pos])
+	var s := dist[near] + 3.0
+	var s1 := minf(s + filament_length, length)
+	var i := near
+	while s < s1:
+		while i < rt.size() - 2 and dist[i + 1] < s:
+			i += 1
+		var seg := maxf(dist[i + 1] - dist[i], 0.001)
+		ground.append(rt[i].lerp(rt[i + 1], clampf((s - dist[i]) / seg, 0.0, 1.0)))
+		s += 2.0
+	if s1 >= length - 0.5:
+		ground.append(rt[rt.size() - 1])
+	else:
+		var j := clampi(dist.bsearch(s1) - 1, 0, rt.size() - 2)
+		var seg := maxf(dist[j + 1] - dist[j], 0.001)
+		ground.append(rt[j].lerp(rt[j + 1], clampf((s1 - dist[j]) / seg, 0.0, 1.0)))
+	if ground.size() < 2:
+		return ground
+	var offset := car_pos - ground[1]
+	offset.y = 0.0
+	for k in range(1, ground.size()):
+		ground[k] += offset * (1.0 - smoothstep(0.0, filament_rise, 2.0 * k))
+	return ground
 
 
 func _build_beacon() -> Node3D:
